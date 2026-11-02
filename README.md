@@ -22,7 +22,7 @@ Client ID / Secret 和登录令牌只存在这台 iPhone 的本地存储里，�
 
 ## 安装步骤
 
-1. **放到网上**：把这个文件夹推到一个公开的 GitHub 仓库（例如 `my-health`），在仓库 Settings → Pages 里选 `main` 分支根目录。网址会是 `https://<你的用户名>.github.io/my-health/`。
+1. **放到网上**：把这个文件夹推到一个公开的 GitHub 仓库（例如 `open-fitbit`），在仓库 Settings → Pages 里选 `main` 分支根目录。网址会是 `https://huiskylabs.github.io/open-fitbit/`。
 2. **Google Cloud 里加回调地址**：打开 Google Cloud Console → APIs & Services → Credentials → 你的 OAuth 客户端（Web application），在 *Authorized redirect URIs* 里加上上面那个网址（结尾的 `/` 也要一致），保存。
    同时确认 *OAuth consent screen → Data Access* 里勾了上面三个 Google Health API 权限，*Audience → Test users* 里有你自己的 Gmail。
 3. **装到 iPhone**：用 Safari 打开网址 → 分享按钮 → **添加到主屏幕**。
