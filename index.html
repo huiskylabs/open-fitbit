@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="我的健康">
+  <meta name="theme-color" content="#111214">
+  <meta name="referrer" content="no-referrer">
+  <title>我的健康</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1 id="title">今天</h1>
+    <div class="top-actions">
+      <button id="refresh" class="icon-btn" aria-label="刷新">↻</button>
+      <button id="open-settings" class="icon-btn" aria-label="设置">⚙︎</button>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <main id="view" aria-live="polite"></main>
+  <div id="tip" class="tip" hidden></div>
+  <nav class="tabs" role="tablist">
+    <button data-tab="today" class="on"><span class="ti">◎</span>今天</button>
+    <button data-tab="sleep"><span class="ti">☾</span>睡眠</button>
+    <button data-tab="workouts"><span class="ti">⚡︎</span>运动</button>
+    <button data-tab="heart"><span class="ti">♥︎</span>心率</button>
+  </nav>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
