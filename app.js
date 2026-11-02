@@ -1,329 +1,456 @@
+// 我的健康 v2 — app shell: five tabs, one shared 日 / 周 / 月 / 3月 switch, sync, training detection, settings.
 import * as auth from './js/auth.js';
 import * as api from './js/api.js';
-import { demoData, demoHr } from './js/demo.js';
-import { STAGES, hypnogram, sleepNights, lineChart, lineHover, clearHover, barChart, hm, dur } from './js/charts.js';
+import * as data from './js/data.js';
+import * as tr from './js/training.js';
+import * as drive from './js/drive.js';
+import * as voice from './js/voice.js';
+import * as store from './js/store.js';
+import * as ui from './js/ui.js';
+import * as editor from './js/trainui.js';
+import { demoSource, demoTraining, DEMO_ZONES } from './js/demo.js';
+import { zoneOf, zonesOrDefault } from './js/scores.js';
+import { esc, ymd, parseYmd, addDays, today, dayDiff, hm, md, wk, clamp } from './js/util.js';
+import { RANGES, MAX_OFFSET, period, workouts } from './js/pages/common.js';
+import * as pToday from './js/pages/today.js';
+import * as pSleep from './js/pages/sleep.js';
+import * as pWork from './js/pages/workouts.js';
+import * as pTrain from './js/pages/trainpage.js';
+import * as pHeart from './js/pages/heart.js';
 
+const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, train: pTrain, heart: pHeart };
+const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', train: '训练', heart: '心率' };
+const SIZE = { d: 1, w: 7, m: 30, q: 91 };
 const $ = (s, el = document) => el.querySelector(s);
-const view = $('#view');
-const state = { tab: 'today', nightIdx: 0, hrDay: 0, data: null, demo: false, loading: false, error: null };
 
-const EX = {
-  RUNNING: ['🏃', '跑步'], WALKING: ['🚶', '步行'], HIKING: ['🥾', '徒步'], BIKING: ['🚴', '骑行'], SWIMMING: ['🏊', '游泳'],
-  WEIGHTLIFTING: ['🏋️', '力量训练'], FREE_WEIGHTS: ['🏋️', '自由重量'], FUNCTIONAL_STRENGTH_TRAINING: ['🏋️', '功能性力量'],
-  YOGA: ['🧘', '瑜伽'], PILATES: ['🧘', '普拉提'], ELLIPTICAL: ['⚙️', '椭圆机'], HIIT: ['🔥', 'HIIT'], TENNIS: ['🎾', '网球'],
-  BADMINTON: ['🏸', '羽毛球'], BASKETBALL: ['🏀', '篮球'], SOCCER: ['⚽️', '足球'], DANCING: ['💃', '跳舞'], ROWING_MACHINE: ['🚣', '划船机'],
-  TREADMILL: ['🏃', '跑步机'], INDOOR_CLIMBING: ['🧗', '攀岩'], CLIMBING: ['🧗', '攀岩'], GOLF: ['⛳️', '高尔夫'], CROSSFIT: ['🔥', 'CrossFit'],
-  SPINNING: ['🚴', '动感单车'], STAIR_CLIMBING: ['🪜', '爬楼梯'], BOXING: ['🥊', '拳击'], MARTIAL_ARTS: ['🥋', '武术'],
-};
-const exInfo = (e) => { const x = EX[e.type]; return x ? [x[0], x[1]] : ['⚡️', e.name || (e.type || '运动').toLowerCase().replace(/_/g, ' ')]; };
-const ZONES = [['moderate', '燃脂', 'var(--z1)'], ['vigorous', '有氧', 'var(--z2)'], ['peak', '峰值', 'var(--z3)']];
-const fmtKm = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + ' 公里' : Math.round(m) + ' 米');
-const dayLabel = (d) => {
-  const t = new Date(); t.setHours(0, 0, 0, 0);
-  const dd = new Date(d); dd.setHours(0, 0, 0, 0);
-  const diff = Math.round((t - dd) / 864e5);
-  const wk = '日一二三四五六'[dd.getDay()];
-  return diff === 0 ? '今天' : diff === 1 ? '昨天' : `${dd.getMonth() + 1}月${dd.getDate()}日 周${wk}`;
+const pref = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem('ui:' + k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('ui:' + k, JSON.stringify(v)); } catch {} },
 };
 
-// ---------- data ----------
-async function load(force = false) {
-  state.demo = !auth.isSignedIn();
-  if (state.demo) { state.data = demoData(); render(); return; }
-  if (force) api.clearCache();
-  state.loading = true; state.error = null; spin(true); render();
-  try {
-    const [sleeps, exercises, rhr, hrv, steps] = await Promise.all([
-      api.getSleeps(21), api.getExercises(45), api.getRestingHr(30), api.getHrv(30).catch(() => []), api.getDailySteps(14),
-    ]);
-    state.data = { sleeps, exercises, rhr, hrv, steps };
-  } catch (e) {
-    state.error = e.message;
-    if (e.message === 'NOT_SIGNED_IN') { state.error = null; state.demo = true; state.data = demoData(); }
+const S = {
+  tab: PAGES[pref.get('tab')] ? pref.get('tab') : 'today',
+  range: SIZE[pref.get('range')] ? pref.get('range') : 'w',
+  offset: 0,
+  demo: true, expired: false, model: null, v: null, syncing: false, err: '', focus: null, dayKey: ymd(today()),
+};
+
+// ---------- render ----------
+function currentPeriod() { return S.tab === 'today' ? period('d', 0) : period(S.range, S.offset); }
+
+function header(per) {
+  $('#title').textContent = TITLES[S.tab];
+  const d = today();
+  $('#date').textContent = S.tab === 'today' ? `${md(d)} 周${wk(d)}` : '';
+  const p = $('#period');
+  p.hidden = S.tab === 'today';
+  if (!p.hidden) {
+    p.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.range === S.range)));
+    $('#plabel').textContent = per.label;
+    $('[data-nav="1"]').disabled = S.offset >= MAX_OFFSET[S.range];
+    $('[data-nav="-1"]').disabled = S.offset <= 0;
   }
-  state.loading = false; spin(false); render();
-}
-const spin = (on) => $('#refresh').classList.toggle('spin', on);
-
-async function hrFor(start, end, win, workout) {
-  if (state.demo) return demoHr(start, end, win, workout);
-  return api.getHrSeries(start, end, win);
+  document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === S.tab)));
 }
 
-// ---------- shell ----------
 function banner() {
   const b = $('#banner');
-  if (state.error) { b.className = 'banner err'; b.innerHTML = `${state.error} <button data-act="settings">去设置</button>`; b.hidden = false; return; }
-  if (state.demo) { b.className = 'banner'; b.innerHTML = `现在显示的是示例数据。<button data-act="settings">连接我的 Fitbit →</button>`; b.hidden = false; return; }
-  b.hidden = true;
+  let h = '';
+  if (S.demo) h = '现在看到的是示例数据 <button data-act="settings">连接我的 Fitbit</button>';
+  else if (S.expired) h = '登录过期了（测试模式每 7 天一次）<button data-act="login">重新连接</button>';
+  else if (S.err) h = `<span class="warn">${esc(S.err)}</span> <button data-act="sync">重试</button>`;
+  b.innerHTML = h;
+  b.hidden = !h;
 }
 
-function render() {
+function syncUi() { $('#sync').classList.toggle('spin', S.syncing); }
+
+let renderSeq = 0;
+function render({ keepScroll = false } = {}) {
+  const per = currentPeriod();
+  header(per);
   banner();
-  $('#title').textContent = { today: '今天', sleep: '睡眠', workouts: '运动', heart: '心率' }[state.tab];
-  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === state.tab));
-  if (!state.data) { view.innerHTML = `<div class="empty">${state.loading ? '正在读取数据…' : ''}</div>`; return; }
-  view.innerHTML = { today: viewToday, sleep: viewSleep, workouts: viewWorkouts, heart: viewHeart }[state.tab]();
-  if (state.tab === 'heart') fillHeartDay();
+  const view = $('#view');
+  if (!S.v) { view.innerHTML = `<div class="empty">${S.syncing ? '正在读取数据…' : ''}</div>`; return; }
+  const ctx = { v: S.v, per, focus: S.focus, demo: S.demo };
+  const y = scrollY;
+  try { view.innerHTML = PAGES[S.tab].render(ctx); } catch (e) { console.error(e); view.innerHTML = `<div class="empty">页面出错：${esc(e.message)}</div>`; }
+  if (keepScroll) scrollTo(0, y);
+  const seq = ++renderSeq;
+  Promise.resolve(PAGES[S.tab].after?.(ctx, view)).catch((e) => { if (seq === renderSeq) console.warn(e); });
 }
 
-const mainNights = () => {
-  const all = state.data.sleeps;
-  const main = all.filter((s) => s.main || !s.nap);
-  // one main sleep per wake-up date
-  const seen = new Set();
-  return main.filter((s) => { const k = s.end.toDateString(); if (seen.has(k)) return false; seen.add(k); return true; });
-};
-
-function stageRows(s) {
-  const total = STAGES.reduce((a, st) => a + (s.byStage[st.key] || 0), 0) || 1;
-  if (!s.hasStages) return `<div class="note">这晚没有分期数据（手表佩戴太松或睡眠时间太短时只记录总时长）。</div>`;
-  return STAGES.map((st) => {
-    const m = s.byStage[st.key] || 0;
-    return `<div class="stage-row"><span class="name">${st.name}</span><div class="bar"><span style="width:${(m / total) * 100}%;background:${st.color}"></span></div><span class="val">${dur(m)} · ${Math.round((m / total) * 100)}%</span></div>`;
-  }).join('');
-}
-const stack = (s) => `<div class="stack">${['DEEP', 'LIGHT', 'REM', 'AWAKE'].map((k) => { const st = STAGES.find((x) => x.key === k); const m = s.byStage[k] || 0; return m ? `<span style="flex:${m};background:${st.color}" title="${st.name}"></span>` : ''; }).join('')}</div>`;
-const legend = () => `<div class="legend">${STAGES.map((s) => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join('')}</div>`;
-
-const nightLabel = (s) => {
-  const d = new Date(s.end); d.setDate(d.getDate() - 1);
-  const l = dayLabel(d);
-  return l === '昨天' ? '昨晚' : l === '今天' ? '今晚' : l + ' 晚上';
-};
-
-// ---------- Today ----------
-function viewToday() {
-  const n = mainNights()[0];
-  const rhr = state.data.rhr.at(-1);
-  const steps = state.data.steps.at(-1);
-  const recent = state.data.exercises.slice(0, 3);
-  return `
-  <div class="card" data-act="tab" data-tab-to="sleep" style="cursor:pointer">
-    <h2>昨晚睡眠 <span class="sub">${n ? `${hm(n.start)} – ${hm(n.end)}` : ''}</span></h2>
-    ${n ? `<div class="hero">${Math.floor(n.asleep / 60)}<small>小时</small> ${n.asleep % 60}<small>分</small></div>${n.hasStages ? stack(n) + legend() : ''}` : '<div class="muted">还没有睡眠记录</div>'}
-  </div>
-  <div class="row">
-    <div class="stat" data-act="tab" data-tab-to="heart"><div class="k">静息心率</div><div class="v">${rhr ? rhr.v : '–'}<small>次/分</small></div></div>
-    <div class="stat"><div class="k">今日步数</div><div class="v">${steps ? steps.v.toLocaleString() : '–'}</div></div>
-  </div>
-  <div class="day-h">最近运动 · 自动识别 + 手表记录</div>
-  ${recent.length ? recent.map(workoutCard).join('') : '<div class="empty">最近 45 天没有运动记录</div>'}
-  <div class="card"><h2>最近 14 天步数</h2>${barChart(state.data.steps, { unit: '步', goal: 10000 })}</div>`;
+function go({ tab = S.tab, range = S.range, offset = 0, focus = null, keepScroll = false } = {}) {
+  const changed = tab !== S.tab || range !== S.range || offset !== S.offset;
+  S.tab = tab; S.range = range; S.offset = clamp(offset, 0, MAX_OFFSET[range]); S.focus = focus;
+  pref.set('tab', tab); pref.set('range', range);
+  ui.hideTip();
+  render({ keepScroll: keepScroll && !changed });
+  if (changed && !keepScroll) scrollTo(0, 0);
 }
 
-// ---------- Sleep ----------
-function viewSleep() {
-  const nights = mainNights();
-  if (!nights.length) return '<div class="empty">最近没有睡眠记录</div>';
-  state.nightIdx = Math.min(state.nightIdx, nights.length - 1);
-  const s = nights[state.nightIdx];
-  const nap = state.data.sleeps.filter((x) => x.nap && x.end.toDateString() === s.end.toDateString());
-  return `
-  <div class="nav-day">
-    <button data-act="night" data-d="1" ${state.nightIdx >= nights.length - 1 ? 'disabled' : ''}>‹</button>
-    <span class="d">${nightLabel(s)}</span>
-    <button data-act="night" data-d="-1" ${state.nightIdx === 0 ? 'disabled' : ''}>›</button>
-  </div>
-  <div class="card">
-    <h2>总睡眠 <span class="sub">${hm(s.start)} 上床 · ${hm(s.end)} 起床</span></h2>
-    <div class="hero">${Math.floor(s.asleep / 60)}<small>小时</small> ${s.asleep % 60}<small>分</small></div>
-    <div style="margin-top:12px">${s.stages.length ? hypnogram(s) : ''}</div>
-    <div class="note">点一下色块可以看每段的时间。</div>
-  </div>
-  <div class="card"><h2>各阶段</h2>${stageRows(s)}</div>
-  <div class="card"><h2>细节</h2>
-    <div class="grid4">
-      <div><div class="k">在床时间</div><div class="v">${dur(s.inBed)}</div></div>
-      <div><div class="k">入睡用时</div><div class="v">${dur(s.toFallAsleep)}</div></div>
-      <div><div class="k">清醒次数</div><div class="v">${s.awakenings} 次</div></div>
-      <div><div class="k">清醒总时长</div><div class="v">${dur(s.byStage.AWAKE || s.awake)}</div></div>
-    </div>
-    ${nap.length ? `<div class="note">当天还有 ${nap.length} 次小睡，共 ${dur(nap.reduce((a, x) => a + x.asleep, 0))}。</div>` : ''}
-  </div>
-  <div class="card"><h2>最近每晚 <span class="sub">点柱子切换</span></h2>${sleepNights(nights.slice(0, 14))}${legend()}
-    <details><summary>表格</summary><table class="data"><tr><th>日期</th><th>睡眠</th><th>深睡</th><th>REM</th></tr>
-    ${nights.slice(0, 14).map((n) => `<tr><td>${n.end.getMonth() + 1}/${n.end.getDate()}</td><td>${dur(n.asleep)}</td><td>${dur(n.byStage.DEEP || 0)}</td><td>${dur(n.byStage.REM || 0)}</td></tr>`).join('')}</table></details>
-  </div>`;
+// keep the same days in view when switching 日 / 周 / 月 / 3月
+function switchRange(range) {
+  const daysBack = SIZE[S.range] * S.offset;
+  go({ range, offset: Math.floor(daysBack / SIZE[range]) });
 }
 
-// ---------- Workouts ----------
-function workoutCard(e) {
-  const [ic, name] = exInfo(e);
-  const bits = [dur(e.activeSec / 60)];
-  if (e.distanceM) bits.push(fmtKm(e.distanceM));
-  if (e.kcal) bits.push(Math.round(e.kcal) + ' 千卡');
-  if (e.avgHr) bits.push('♥︎ ' + e.avgHr);
-  const zt = ZONES.reduce((a, [k]) => a + (e.zones[k] || 0), 0);
-  return `<button class="wk" data-act="workout" data-id="${e.id}">
-    <div class="ic">${ic}</div>
-    <div class="body">
-      <div class="t">${name} ${e.manual ? '<span class="tag">手动</span>' : ''}</div>
-      <div class="m">${dayLabel(e.start)} ${hm(e.start)} · ${bits.join(' · ')}</div>
-      ${zt ? `<div class="zones">${ZONES.map(([k, , c]) => (e.zones[k] ? `<span style="flex:${e.zones[k]};background:${c}"></span>` : '')).join('')}<span style="flex:${Math.max(0, e.activeSec - zt)};background:var(--card-2)"></span></div>` : ''}
-    </div></button>`;
+function nav(step) {
+  const next = clamp(S.offset + step, 0, MAX_OFFSET[S.range]);
+  if (next === S.offset) return;
+  const view = $('#view');
+  view.classList.remove('slide-l', 'slide-r');
+  void view.offsetWidth;
+  view.classList.add(step > 0 ? 'slide-r' : 'slide-l');
+  go({ offset: next });
 }
 
-function viewWorkouts() {
-  const ex = state.data.exercises;
-  if (!ex.length) return '<div class="empty">最近 45 天没有运动记录。<br>Fitbit 会自动识别 10 分钟以上的步行、跑步、骑行等。</div>';
-  const week = ex.filter((e) => e.start > api.daysAgo(6));
-  const mins = week.reduce((a, e) => a + e.activeSec / 60, 0);
-  const kcal = week.reduce((a, e) => a + (e.kcal || 0), 0);
-  let out = `<div class="row">
-    <div class="stat"><div class="k">近 7 天运动</div><div class="v">${week.length}<small>次</small></div></div>
-    <div class="stat"><div class="k">总时长</div><div class="v">${Math.round(mins)}<small>分钟</small></div></div>
-    <div class="stat"><div class="k">消耗</div><div class="v">${Math.round(kcal)}<small>千卡</small></div></div>
-  </div>
-  <div class="legend" style="margin:0 2px 4px">${ZONES.map(([, n, c]) => `<span><i style="background:${c}"></i>${n}区间</span>`).join('')}</div>`;
-  let last = '';
-  for (const e of ex) {
-    const d = dayLabel(e.start);
-    if (d !== last) { out += `<div class="day-h">${d}</div>`; last = d; }
-    out += workoutCard(e);
+// ---------- data ----------
+async function useDemo() {
+  S.demo = true;
+  data.useSource(demoSource, 'demo:');
+  tr.setPrefix('demo:');
+  await tr.load();
+  if (!tr.get().sessions.length) {
+    const t = demoTraining();
+    const z = zonesOrDefault(DEMO_ZONES);
+    for (const s of t.sessions) {
+      const pts = await demoSource.getHrSeries(s.start, s.end, 60);
+      s.hr = tr.summarizeHr(pts, zoneOf, z);
+      if (s.hr) s.hr.peaks = tr.findPeaks(pts, 62);
+    }
+    await tr.replaceAll(t);
   }
-  return out;
+  S.model = await data.loadCached();
 }
 
-async function openWorkout(id) {
-  const e = state.data.exercises.find((x) => x.id === id);
-  if (!e) return;
-  const [ic, name] = exInfo(e);
-  const pace = e.distanceM && ['RUNNING', 'WALKING', 'TREADMILL', 'HIKING'].includes(e.type) ? e.activeSec / (e.distanceM / 1000) : null;
-  const sheet = openSheet(`<h3>${ic} ${name}</h3>
-    <div class="muted">${dayLabel(e.start)} ${hm(e.start)} – ${hm(e.end)}${e.manual ? ' · 手动记录' : ''}</div>
-    <div class="card" style="margin-top:12px"><div class="grid4" style="margin-top:0">
-      <div><div class="k">时长</div><div class="v">${dur(e.activeSec / 60)}</div></div>
-      <div><div class="k">平均心率</div><div class="v">${e.avgHr ? e.avgHr + ' 次/分' : '–'}</div></div>
-      <div><div class="k">消耗</div><div class="v">${e.kcal ? Math.round(e.kcal) + ' 千卡' : '–'}</div></div>
-      <div><div class="k">${pace ? '配速' : '距离'}</div><div class="v">${pace ? `${Math.floor(pace / 60)}'${String(Math.round(pace % 60)).padStart(2, '0')}"/公里` : e.distanceM ? fmtKm(e.distanceM) : '–'}</div></div>
-      ${e.steps ? `<div><div class="k">步数</div><div class="v">${e.steps.toLocaleString()}</div></div>` : ''}
-      ${e.azm ? `<div><div class="k">活动区间分钟</div><div class="v">${e.azm}</div></div>` : ''}
-    </div></div>
-    <div class="card"><h2>心率</h2><div id="wk-hr"><div class="empty">读取中…</div></div></div>
-    <div class="card"><h2>心率区间</h2>${ZONES.map(([k, n, c]) => { const m = (e.zones[k] || 0) / 60; return `<div class="stage-row"><span class="name">${n}</span><div class="bar"><span style="width:${Math.min(100, (m * 60 / e.activeSec) * 100)}%;background:${c}"></span></div><span class="val">${dur(m)}</span></div>`; }).join('')}</div>`);
+async function useReal(cached) {
+  S.demo = false;
+  data.useSource(api, '');
+  tr.setPrefix('');
+  await tr.load();
+  S.model = cached === undefined ? await data.loadCached() : cached;
+}
+
+async function syncNow({ force = false } = {}) {
+  if (S.syncing) return;
+  if (!S.demo && !auth.isSignedIn()) { S.expired = true; render({ keepScroll: true }); return; }
+  S.syncing = true; S.err = ''; syncUi();
+  if (!S.v) render();
   try {
-    const pts = await hrFor(e.start, e.end, 30, e);
-    $('#wk-hr', sheet).innerHTML = lineChart(pts, { unit: '次/分', fmtX: (a, b) => [[a, hm(new Date(a))], [b, hm(new Date(b))]], band: false });
-  } catch (err) { $('#wk-hr', sheet).innerHTML = `<div class="empty">${err.message}</div>`; }
+    S.model = await data.sync(S.model, { force });
+    S.v = data.derive(S.model);
+    S.expired = false;
+    S.dayKey = ymd(today());
+    render({ keepScroll: true });
+    await scan();
+  } catch (e) {
+    console.warn(e);
+    if (!S.demo && !auth.isSignedIn()) S.expired = true;
+    else if (e.message !== 'NOT_SIGNED_IN') S.err = e.message;
+  }
+  S.syncing = false; syncUi(); banner();
 }
 
-// ---------- Heart ----------
-function viewHeart() {
-  const { rhr, hrv } = state.data;
-  const avg = rhr.length ? Math.round(rhr.reduce((a, x) => a + x.v, 0) / rhr.length) : null;
-  const d = api.daysAgo(state.hrDay);
-  return `
-  <div class="nav-day">
-    <button data-act="hrday" data-d="1" ${state.hrDay >= 13 ? 'disabled' : ''}>‹</button>
-    <span class="d">${dayLabel(d)}</span>
-    <button data-act="hrday" data-d="-1" ${state.hrDay === 0 ? 'disabled' : ''}>›</button>
-  </div>
-  <div class="card"><h2>全天心率 <span class="sub">每 5 分钟平均 · 阴影为最高/最低</span></h2><div id="hr-day"><div class="empty">读取中…</div></div></div>
-  <div class="card"><h2>静息心率 <span class="sub">30 天平均 ${avg ?? '–'}</span></h2>
-    <div class="hero">${rhr.at(-1)?.v ?? '–'}<small>次/分</small></div>
-    ${lineChart(rhr.map((x) => ({ t: new Date(x.date + 'T12:00'), v: x.v })), { color: 'var(--hr)', unit: '次/分', ref: avg, fmtX: dateTicks })}
-  </div>
-  ${hrv.length ? `<div class="card"><h2>心率变异性 HRV <span class="sub">睡眠期间 RMSSD</span></h2>
-    <div class="hero">${Math.round(hrv.at(-1).v)}<small>毫秒</small></div>
-    ${lineChart(hrv.map((x) => ({ t: new Date(x.date + 'T12:00'), v: x.v })), { color: 'var(--accent)', unit: '毫秒', fmtX: dateTicks })}
-    <div class="note">HRV 越高通常代表恢复越好；看自己的趋势比看绝对值更有意义。</div></div>` : ''}`;
+// Look for strength sessions in today's and the last two days' heart rate.
+async function scan() {
+  let changed = false;
+  for (const d of tr.daysToScan()) {
+    const date = ymd(d), end = addDays(d, 1);
+    try {
+      const [hr, steps] = await Promise.all([data.hrSeries(+d, +end, 60), data.stepsSeries(+d, +end, 60)]);
+      if (!hr.length) continue;
+      const m = S.model;
+      const cands = tr.detect({
+        dayStart: d, hr, steps, rest: m.daily[date]?.rhr,
+        sleeps: m.sleeps.filter((s) => s.end > +d && s.start < +end),
+        exercises: m.exercises.filter((e) => e.end > +d && e.start < +end),
+      });
+      if (await tr.addCandidates(date, cands)) changed = true;
+    } catch (e) { console.warn('scan', date, e); }
+  }
+  if (changed) render({ keepScroll: true });
 }
-const dateTicks = (a, b) => { const out = []; for (let t = a; t <= b; t += 7 * 864e5) { const d = new Date(t); out.push([t, `${d.getMonth() + 1}/${d.getDate()}`]); } return out; };
 
-async function fillHeartDay() {
-  const start = api.daysAgo(state.hrDay), end = api.daysAgo(state.hrDay - 1);
-  const want = state.hrDay;
-  try {
-    const pts = await hrFor(start, new Date(Math.min(end, Date.now())), 300);
-    if (want !== state.hrDay || state.tab !== 'heart') return;
-    const el = $('#hr-day'); if (!el) return;
-    el.innerHTML = lineChart(pts, { band: true, unit: '次/分', fmtX: (a) => [0, 6, 12, 18].map((h) => [+start + h * 3600e3, `${h}点`]).filter(([t]) => t >= a - 1) });
-  } catch (e) { const el = $('#hr-day'); if (el) el.innerHTML = `<div class="empty">${e.message}</div>`; }
+async function summarize(start, end, peaks) {
+  const pts = await data.hrSeries(start, end, 60);
+  const s = tr.summarizeHr(pts, zoneOf, S.v.zones);
+  if (s) s.peaks = peaks?.length ? peaks : tr.findPeaks(pts, S.model.daily[ymd(new Date(start))]?.rhr || 60);
+  return s;
+}
+
+// ---------- training actions ----------
+const pendingOf = (id) => tr.get().pending.find((p) => p.id === id);
+const editPending = (p, talk = false) => {
+  const g = tr.guess(p.date);
+  editor.open({ pendingId: p.id, date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, peaks: p.peaks, items: g?.items || [] }, { talk });
+};
+
+async function confirmPending(p) {
+  const g = tr.guess(p.date);
+  if (!g) { editPending(p); return; }
+  const hr = await summarize(p.start, p.end, p.peaks).catch(() => null);
+  const s = await tr.saveSession({ date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, items: g.items, pendingId: p.id, hr });
+  render({ keepScroll: true });
+  ui.toast('已保存', { action: '撤销', onAction: async () => { await tr.deleteSession(s.id); tr.get().pending.push(p); await tr.save(); render({ keepScroll: true }); } });
 }
 
 // ---------- settings ----------
+const ago = (t) => {
+  if (!t) return '–';
+  const m = Math.round((Date.now() - t) / 60e3);
+  return m < 1 ? '刚刚' : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${md(new Date(t))} ${hm(new Date(t))}`;
+};
+const BATT = { High: '电量高', Medium: '电量中', Low: '电量低', Critical: '电量很低' };
+
 function openSettings() {
   const c = auth.getConfig();
   const t = auth.tokenInfo();
-  const days = t?.obtained_at ? Math.max(0, 7 - Math.floor((Date.now() - t.obtained_at) / 864e5)) : null;
-  const sheet = openSheet(`<h3>设置</h3>
-    ${auth.isSignedIn() ? `<div class="card"><b>已连接 Fitbit ✓</b><div class="note">测试模式下登录大约 ${days ?? 7} 天后过期，到时点下面重新连接即可。</div>
-      <button class="btn ghost" data-act="login">重新连接</button><button class="btn danger" data-act="logout">断开连接</button></div>` : ''}
-    <label class="field"><span>Client ID</span><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" value="${c.clientId || ''}" placeholder="xxxx.apps.googleusercontent.com"></label>
-    <label class="field"><span>Client Secret</span><input id="csec" type="password" autocomplete="off" value="${c.clientSecret || ''}" placeholder="GOCSPX-…"></label>
-    <div class="note">只保存在这台手机上，不会上传到任何地方。在 Google Cloud 的 OAuth 客户端里，"已获授权的重定向 URI" 需要加上：<br><code>${auth.redirectUri()}</code></div>
-    <button class="btn" data-act="save-login">保存并连接 Fitbit</button>
-    <details style="margin-top:14px"><summary>登录后跳回了 Safari 而不是这个 app？</summary>
-      <div class="note">把 Safari 地址栏里那个以 <code>${auth.redirectUri()}?…code=</code> 开头的完整网址复制，粘贴到这里：</div>
-      <label class="field"><input id="paste-url" placeholder="粘贴网址"></label>
-      <button class="btn ghost" data-act="paste-code">完成连接</button>
-    </details>`);
-  return sheet;
+  const signed = auth.isSignedIn();
+  const left = t?.obtained_at ? Math.max(0, 7 - Math.floor((Date.now() - t.obtained_at) / 864e5)) : null;
+  const ds = drive.status();
+  const devs = S.demo ? [] : S.model?.devices || [];
+  ui.openSheet(`<h3>设置</h3>
+    <section class="set-g"><h4>Fitbit 连接</h4>
+      ${signed ? `<div class="set-row"><span>已连接 ✓</span><small>测试模式下大约 ${left ?? 7} 天后要重新连接</small></div>
+        <div class="btns"><button class="btn ghost" data-act="login">重新连接</button><button class="btn ghost danger" data-act="logout">断开</button></div>` : ''}
+      <details ${signed ? '' : 'open'}><summary>Client ID 和 Secret</summary>
+        <label class="field"><span>Client ID</span><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.clientId || '')}" placeholder="xxxx.apps.googleusercontent.com"></label>
+        <label class="field"><span>Client Secret</span><input id="csec" type="password" autocomplete="off" value="${esc(c.clientSecret || '')}" placeholder="GOCSPX-…"></label>
+        <div class="note">只保存在这台手机上。Google Cloud 里“已获授权的重定向 URI”要填：<br><code>${esc(auth.redirectUri())}</code></div>
+        <button class="btn pri" data-act="save-login">保存并连接</button>
+        <details class="sub-d"><summary>登录后跳回了 Safari？</summary>
+          <div class="note">把 Safari 地址栏里以 <code>${esc(auth.redirectUri())}?</code> 开头的完整网址复制到这里：</div>
+          <label class="field"><input id="paste-url" placeholder="粘贴网址" autocomplete="off"></label>
+          <button class="btn ghost" data-act="paste-code">完成连接</button>
+        </details>
+      </details>
+    </section>
+    ${devs.length ? `<section class="set-g"><h4>设备</h4>${devs.map((d) => `<div class="set-row"><span>${esc(d.name)}</span><small>${d.battery != null ? `电量 ${d.battery}%` : BATT[d.batteryStatus] || ''}${d.lastSync ? ` · 同步于 ${ago(d.lastSync)}` : ''}</small></div>`).join('')}</section>` : ''}
+    <section class="set-g"><h4>语音记录（Claude）</h4>
+      <label class="field"><span>Anthropic API 密钥</span><input id="akey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(voice.getKey())}" placeholder="sk-ant-…"></label>
+      <div class="note">只保存在这台手机上。按住说话后，识别出的文字会发给 Claude，变成动作、组数和重量。</div>
+      <button class="btn ghost" data-act="key-save">保存并试一下</button>
+    </section>
+    <section class="set-g"><h4>训练记录备份</h4>
+      <label class="sw"><input type="checkbox" id="drive-on"${ds.on ? ' checked' : ''}${S.demo ? ' disabled' : ''}><span>自动备份到我的 Google Drive</span></label>
+      <div class="note">${S.demo ? '连接 Fitbit 后可以开。' : ds.at ? `上次备份：${ago(ds.at)}` : '还没备份过。'}${ds.err ? ` <span class="warn">${esc(ds.err)}</span>` : ''}</div>
+      ${!S.demo && ds.on ? '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>' : ''}
+      <button class="btn ghost" data-act="export">导出训练记录（JSON）</button>
+    </section>
+    <section class="set-g"><h4>训练建议</h4>
+      <label class="sw"><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}><span>“下次练什么”里提示加重量</span></label>
+    </section>
+    <section class="set-g"><h4>数据</h4>
+      <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
+      <button class="btn ghost" data-act="resync"${S.demo ? ' disabled' : ''}>重新下载最近 120 天</button>
+    </section>
+    <div class="note center">我的健康 v2 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
 }
 
-let sheetEls = [];
-function openSheet(html) {
-  closeSheet();
-  const bg = document.createElement('div'); bg.className = 'sheet-bg'; bg.dataset.act = 'close-sheet';
-  const sh = document.createElement('div'); sh.className = 'sheet'; sh.innerHTML = `<div class="grab"></div>${html}`;
-  document.body.append(bg, sh); sheetEls = [bg, sh];
-  return sh;
+async function settingsChange(e) {
+  const t = e.target;
+  if (t.id === 'hints') { tr.get().settings.hints = t.checked; await tr.save(); render({ keepScroll: true }); }
+  if (t.id === 'drive-on') {
+    if (!t.checked) { drive.setOn(false); return; }
+    if (!auth.isSignedIn()) { t.checked = false; ui.toast('先连接 Fitbit'); return; }
+    drive.setOn(true);
+    if (!drive.granted()) {
+      if (!confirm('还需要授权一次 Google Drive。这个 app 只能看到它自己建的备份文件。现在去授权？')) { drive.setOn(false); t.checked = false; return; }
+      await auth.startLogin({ extraScopes: [drive.SCOPE] });
+      return;
+    }
+    await backupNow();
+  }
 }
-function closeSheet() { sheetEls.forEach((e) => e.remove()); sheetEls = []; hideTip(); }
 
-// ---------- tooltip ----------
-const tip = $('#tip');
-let tipTimer;
-function showTip(html, x, y) {
-  tip.innerHTML = html; tip.hidden = false;
-  const r = tip.getBoundingClientRect();
-  tip.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2)) + 'px';
-  tip.style.top = Math.max(8, y - r.height - 14) + 'px';
-  clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 3500);
+async function backupNow() {
+  try { await drive.backup(tr.get()); ui.toast('已备份到 Google Drive'); } catch (e) { ui.toast(e.message === 'NOT_SIGNED_IN' ? '登录过期，先重新连接' : e.message); }
+  if ($('.settings')) openSettings();
 }
-function hideTip() { tip.hidden = true; document.querySelectorAll('svg').forEach(clearHover); }
 
-function pointer(ev) {
-  const el = ev.target;
-  if (el.dataset?.line) { const h = lineHover(el, ev.clientX); if (h) showTip(h, ev.clientX, ev.clientY); return true; }
-  if (el.dataset?.tip) { showTip(el.dataset.tip, ev.clientX, ev.clientY); return true; }
-  return false;
+function exportJson() {
+  const blob = new Blob([JSON.stringify({ app: 'open-fitbit', kind: 'training-log', savedAt: Date.now(), training: tr.get() }, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `训练记录-${ymd(today())}.json`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30e3);
 }
-document.addEventListener('pointermove', (ev) => { if (ev.pointerType === 'mouse' || ev.buttons) pointer(ev); });
-document.addEventListener('pointerdown', (ev) => { if (!pointer(ev)) hideTip(); });
+
+const login = () => auth.startLogin({ extraScopes: drive.status().on ? [drive.SCOPE] : [] });
 
 // ---------- events ----------
-document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-act], [data-tab], [data-night]');
-  if (!t) return;
-  if (t.dataset.tab && t.closest('.tabs')) { state.tab = t.dataset.tab; render(); scrollTo(0, 0); return; }
-  if (t.dataset.night) { const i = mainNights().findIndex((n) => n.id === t.dataset.night); if (i >= 0) { state.nightIdx = i; render(); } return; }
-  const act = t.dataset.act;
-  try {
-    if (act === 'tab') { state.tab = t.dataset.tabTo; render(); scrollTo(0, 0); }
-    else if (act === 'night') { state.nightIdx += +t.dataset.d; render(); }
-    else if (act === 'hrday') { state.hrDay += +t.dataset.d; render(); }
-    else if (act === 'workout') openWorkout(t.dataset.id);
-    else if (act === 'settings') openSettings();
-    else if (act === 'close-sheet') closeSheet();
-    else if (act === 'save-login') {
+async function onAction(el) {
+  const a = el.dataset.act, id = el.dataset.id;
+  switch (a) {
+    case 'goto': go({ tab: el.dataset.tab, range: el.dataset.range || S.range }); break;
+    case 'night': go({ tab: 'sleep', range: 'd', offset: dayDiff(today(), parseYmd(el.dataset.date)) }); break;
+    case 'session': {
+      const s = tr.get().sessions.find((x) => x.id === id);
+      if (s) go({ tab: 'train', range: 'd', offset: dayDiff(today(), parseYmd(s.date)) });
+      break;
+    }
+    case 'workout': {
+      const w = workouts(S.v).find((x) => x.id === id);
+      if (!w) break;
+      go({ tab: 'workouts', range: 'd', offset: dayDiff(today(), new Date(w.start)), focus: id, keepScroll: true });
+      requestAnimationFrame(() => $('#wk-detail')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      break;
+    }
+    case 'pend-ok': { const p = pendingOf(id); if (p) await confirmPending(p); break; }
+    case 'pend-edit': { const p = pendingOf(id); if (p) editPending(p); break; }
+    case 'pend-no': await tr.dismissPending(id); render({ keepScroll: true }); ui.toast('好的，这次不算训练'); break;
+    case 'sess-new': editor.open({ date: el.dataset.date && el.dataset.date <= ymd(today()) ? el.dataset.date : ymd(today()), items: [] }); break;
+    case 'sess-edit': { const s = tr.get().sessions.find((x) => x.id === id); if (s) editor.open(s); break; }
+    case 'sess-del': {
+      const s = tr.get().sessions.find((x) => x.id === id);
+      if (!s || !confirm('删除这次训练记录？')) break;
+      await tr.deleteSession(id);
+      render({ keepScroll: true });
+      ui.toast('已删除', { action: '撤销', onAction: async () => { await tr.saveSession(s); render({ keepScroll: true }); } });
+      break;
+    }
+    case 'settings': openSettings(); break;
+    case 'sync': syncNow(); break;
+    case 'login': if (auth.isConfigured()) await login(); else openSettings(); break;
+    case 'save-login': {
       const clientId = $('#cid').value.trim(), clientSecret = $('#csec').value.trim();
-      if (!clientId || !clientSecret) { alert('请填写 Client ID 和 Client Secret'); return; }
+      if (!clientId || !clientSecret) { ui.toast('请填写 Client ID 和 Client Secret'); break; }
       auth.setConfig({ clientId, clientSecret });
-      await auth.startLogin();
-    } else if (act === 'login') await auth.startLogin();
-    else if (act === 'logout') { auth.signOut(); api.clearCache(); closeSheet(); load(); }
-    else if (act === 'paste-code') { await auth.handleRedirect($('#paste-url').value.trim()); closeSheet(); load(true); }
-  } catch (e) { alert(e.message); }
-});
-$('#open-settings').addEventListener('click', openSettings);
-$('#refresh').addEventListener('click', () => load(true));
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !state.demo) load(); });
+      await login();
+      break;
+    }
+    case 'paste-code': {
+      await auth.handleRedirect($('#paste-url').value.trim());
+      ui.closeSheet();
+      await afterLogin();
+      break;
+    }
+    case 'logout':
+      if (!confirm('断开后手机上的 Fitbit 数据会清掉（训练记录保留）。继续？')) break;
+      auth.signOut();
+      await data.clearAll();
+      ui.closeSheet();
+      await useDemo();
+      S.v = S.model ? data.derive(S.model) : null;
+      render();
+      syncNow();
+      break;
+    case 'key-save': {
+      const k = $('#akey').value.trim();
+      voice.setKey(k);
+      if (!k) { ui.toast('已清除密钥'); break; }
+      el.disabled = true; el.textContent = '试一下…';
+      try { ui.toast((await voice.test()) ? '密钥可以用 ✓' : '能连上 Claude，但结果不对'); } catch (e) { ui.toast(e.message); }
+      el.disabled = false; el.textContent = '保存并试一下';
+      break;
+    }
+    case 'backup-now': await backupNow(); break;
+    case 'restore': {
+      try {
+        const t = await drive.restore();
+        if (!t) { ui.toast('Google Drive 里还没有备份'); break; }
+        if (!confirm(`用备份替换手机上的训练记录？\n备份里有 ${t.sessions?.length || 0} 次训练，手机上现在有 ${tr.get().sessions.length} 次。`)) break;
+        await tr.replaceAll(t);
+        ui.closeSheet();
+        render();
+        ui.toast('已恢复');
+      } catch (e) { ui.toast(e.message); }
+      break;
+    }
+    case 'export': exportJson(); break;
+    case 'resync': ui.closeSheet(); syncNow({ force: true }); break;
+    default: break;
+  }
+}
+
+function bind() {
+  ui.initTips();
+  document.addEventListener('click', async (ev) => {
+    const tab = ev.target.closest('.tabs [data-tab]');
+    if (tab) { go({ tab: tab.dataset.tab }); return; }
+    const r = ev.target.closest('#period [data-range]');
+    if (r) { switchRange(r.dataset.range); return; }
+    const n = ev.target.closest('[data-nav]');
+    if (n) { nav(+n.dataset.nav); return; }
+    const el = ev.target.closest('[data-act]');
+    if (!el || el.closest('.ed-sheet')) return;
+    if (el.dataset.act === 'pend-talk') return; // press and hold, see below
+    try { await onAction(el); } catch (e) { console.error(e); ui.toast(e.message); }
+  });
+  // hold "按住说话" on a confirm card: open the editor with the guess and start listening
+  document.addEventListener('pointerdown', (ev) => {
+    const b = ev.target.closest('[data-act="pend-talk"]');
+    if (!b) return;
+    ev.preventDefault();
+    const p = pendingOf(b.dataset.id);
+    if (p) editPending(p, true);
+  });
+  document.addEventListener('change', (ev) => { if (ev.target.closest('.settings')) settingsChange(ev).catch((e) => ui.toast(e.message)); });
+  $('#open-settings').addEventListener('click', openSettings);
+  $('#sync').addEventListener('click', () => syncNow());
+
+  // swipe left / right on a page = newer / older period
+  const view = $('#view');
+  let sw = null;
+  view.addEventListener('touchstart', (e) => {
+    sw = null;
+    if (S.tab === 'today' || e.touches.length !== 1) return;
+    if (e.target.closest('[data-hover], input, textarea, button')) return;
+    sw = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  }, { passive: true });
+  view.addEventListener('touchend', (e) => {
+    if (!sw) return;
+    const dx = e.changedTouches[0].clientX - sw.x, dy = e.changedTouches[0].clientY - sw.y, dt = Date.now() - sw.t;
+    sw = null;
+    if (Math.abs(dx) > 70 && Math.abs(dy) < 45 && dt < 700) nav(dx > 0 ? 1 : -1);
+  }, { passive: true });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (S.dayKey !== ymd(today()) && S.model) { S.v = data.derive(S.model); S.dayKey = ymd(today()); render(); }
+    if (!S.model || Date.now() - (S.model.syncedAt || 0) > 10 * 60e3) syncNow();
+  });
+}
+
+async function afterLogin() {
+  await useReal();
+  S.v = S.model ? data.derive(S.model) : null;
+  render();
+  await syncNow({ force: !S.model });
+  if (drive.status().on && drive.granted()) {
+    if (!tr.get().sessions.length) await autoRestore();
+    else drive.backupSoon(() => tr.get(), 500);
+  }
+}
+
+// New phone (or cleared storage): bring the training log back from Drive.
+async function autoRestore() {
+  try {
+    const t = await drive.restore();
+    if (t?.sessions?.length && !tr.get().sessions.length) { await tr.replaceAll(t); render({ keepScroll: true }); ui.toast(`已从 Google Drive 恢复 ${t.sessions.length} 次训练`); }
+  } catch (e) { console.warn('restore', e); }
+}
 
 // ---------- boot ----------
 (async () => {
-  try { if (await auth.handleRedirect()) state.tab = 'today'; } catch (e) { state.error = e.message; }
-  load();
+  bind();
+  store.persist();
+  try { Object.keys(localStorage).filter((k) => k.startsWith('c:')).forEach((k) => localStorage.removeItem(k)); } catch {} // v1 cache
+  editor.setHooks({ summarize, done: () => render({ keepScroll: true }), openSettings });
+  tr.setOnSave(() => { if (!S.demo) drive.backupSoon(() => tr.get()); });
+  let justLoggedIn = false;
+  try { justLoggedIn = await auth.handleRedirect(); } catch (e) { S.err = e.message; }
+  // Real mode when signed in, or when real data is cached (sign-in expired: keep showing it).
+  data.useSource(api, '');
+  const cached = await data.loadCached();
+  if (auth.isSignedIn() || cached) await useReal(cached);
+  else await useDemo();
+  S.expired = !S.demo && !auth.isSignedIn();
+  if (S.model) S.v = data.derive(S.model);
+  render();
+  if (justLoggedIn) { ui.toast('已连接 Fitbit'); await syncNow({ force: !S.model }); if (drive.status().on && drive.granted() && !tr.get().sessions.length) await autoRestore(); else drive.backupSoon(() => tr.get(), 1500); }
+  else await syncNow();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="我的健康">
-  <meta name="theme-color" content="#111214">
+  <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
   <meta name="referrer" content="no-referrer">
   <title>我的健康</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -17,20 +18,31 @@
 </head>
 <body>
   <header class="top">
-    <h1 id="title">今天</h1>
-    <div class="top-actions">
-      <button id="refresh" class="icon-btn" aria-label="刷新">↻</button>
-      <button id="open-settings" class="icon-btn" aria-label="设置">⚙︎</button>
+    <div class="top-row">
+      <h1><span id="title">今天</span><small id="date"></small></h1>
+      <div class="top-actions">
+        <button id="sync" class="icon-btn" aria-label="刷新"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button id="open-settings" class="icon-btn" aria-label="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      </div>
+    </div>
+    <div id="period" class="period" hidden>
+      <div class="seg" role="tablist" aria-label="时间范围">
+        <button data-range="d" role="tab">日</button><button data-range="w" role="tab">周</button><button data-range="m" role="tab">月</button><button data-range="q" role="tab">3月</button>
+      </div>
+      <div class="pnav">
+        <button data-nav="1" aria-label="更早">‹</button><span id="plabel"></span><button data-nav="-1" aria-label="更近">›</button>
+      </div>
     </div>
   </header>
   <div id="banner" class="banner" hidden></div>
   <main id="view" aria-live="polite"></main>
   <div id="tip" class="tip" hidden></div>
   <nav class="tabs" role="tablist">
-    <button data-tab="today" class="on"><span class="ti">◎</span>今天</button>
-    <button data-tab="sleep"><span class="ti">☾</span>睡眠</button>
-    <button data-tab="workouts"><span class="ti">⚡︎</span>运动</button>
-    <button data-tab="heart"><span class="ti">♥︎</span>心率</button>
+    <button data-tab="today" role="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>今天</button>
+    <button data-tab="sleep" role="tab"><svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>睡眠</button>
+    <button data-tab="workouts" role="tab"><svg viewBox="0 0 24 24"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>运动</button>
+    <button data-tab="train" role="tab"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>训练</button>
+    <button data-tab="heart" role="tab"><svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>心率</button>
   </nav>
   <script type="module" src="app.js"></script>
 </body>

@@ -28,7 +28,8 @@ function b64url(bytes) {
   return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export async function startLogin() {
+// extraScopes: e.g. Google Drive (for the training-log backup), asked for only when turned on.
+export async function startLogin({ extraScopes = [] } = {}) {
   const { clientId } = getConfig();
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
@@ -39,7 +40,7 @@ export async function startLogin() {
     client_id: clientId,
     redirect_uri: redirectUri(),
     response_type: 'code',
-    scope: SCOPES.join(' '),
+    scope: [...SCOPES, ...extraScopes].join(' '),
     access_type: 'offline',
     prompt: 'consent',
     include_granted_scopes: 'true',
@@ -70,8 +71,11 @@ function saveTokens(j) {
     refresh_token: j.refresh_token || old.refresh_token,
     expires_at: Date.now() + (j.expires_in - 60) * 1000,
     obtained_at: j.refresh_token ? Date.now() : (old.obtained_at || Date.now()),
+    scope: j.scope || old.scope || '',
   });
 }
+
+export const hasScope = (s) => ((LS.get('tok') || {}).scope || '').split(' ').includes(s);
 
 // Returns true if the current URL was an OAuth redirect that we handled.
 // Also accepts a pasted URL (fallback when iOS returns to Safari instead of the home-screen app).
