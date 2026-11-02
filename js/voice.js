@@ -1,18 +1,37 @@
-// Voice → sets. The phone's speech recognition (zh-CN) turns speech into text; Claude turns the
-// text into lifts and sets. The Anthropic API key is typed in on this phone and stays in localStorage.
+// Voice → sets.
+// Speech → text is the iPhone's own: the 🎤 on the keyboard in the home-screen app (Safari's speech
+// recognition is not available there), or Safari's speech recognition when the page runs in Safari.
+// Text → sets happens on the phone (sayparse.js). Only what the phone can't place goes to an AI model,
+// and only when a key is filled in: OpenRouter (sk-or-…) or Anthropic (sk-ant-…). The key stays in
+// this phone's localStorage.
 import * as tr from './training.js';
 
-const KEY = 'anthropic-key';
-export const getKey = () => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } };
-export const setKey = (k) => { try { if (k) localStorage.setItem(KEY, k); else localStorage.removeItem(KEY); } catch {} };
+const LS = {
+  get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch {} },
+};
+const KEY = 'ai-key', MODEL_K = 'ai-model';
+export const getKey = () => LS.get(KEY) || LS.get('anthropic-key');
+export function setKey(k) { LS.set(KEY, k); LS.set('anthropic-key', ''); }
 export const hasKey = () => !!getKey();
+export const provider = (k = getKey()) => (/^sk-or-/.test(k) ? 'openrouter' : /^sk-ant-/.test(k) ? 'anthropic' : k ? 'unknown' : '');
 
+export const MODELS = {
+  haiku: { label: 'Haiku（最便宜）', openrouter: 'anthropic/claude-haiku-5.5', anthropic: 'claude-haiku-5-5' },
+  sonnet: { label: 'Sonnet', openrouter: 'anthropic/claude-sonnet-5.5', anthropic: 'claude-sonnet-5-5' },
+};
+export const getModel = () => (MODELS[LS.get(MODEL_K)] ? LS.get(MODEL_K) : 'haiku');
+export const setModel = (m) => LS.set(MODEL_K, MODELS[m] ? m : '');
+
+// ---------- speech ----------
+export const standalone = () => globalThis.navigator?.standalone === true || !!globalThis.matchMedia?.('(display-mode: standalone)').matches;
 const Rec = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
-export const canListen = () => !!Rec;
+// iOS only offers speech recognition to pages open in Safari, not to home-screen apps.
+export const canListen = () => !!Rec && !standalone();
 
 const REC_ERR = {
   'not-allowed': '没有麦克风权限：在 iPhone 设置 → Safari → 麦克风 里允许',
-  'service-not-allowed': '这里不能用语音识别，可以用键盘上的麦克风说',
+  'service-not-allowed': '这里不能用语音识别，可以用键盘上的 🎤 说',
   'audio-capture': '找不到麦克风',
   network: '语音识别需要网络',
 };
@@ -46,11 +65,8 @@ export function listen({ onText } = {}) {
   return { stop: () => { try { r.stop(); } catch {} }, abort: () => { try { r.abort(); } catch {} }, done };
 }
 
-// ---------- Claude ----------
-const MODEL = 'claude-opus-5-5';
-const URL = 'https://api.anthropic.com/v1/messages';
+// ---------- text → sets (AI, only for what sayparse.js couldn't place) ----------
 const PART_IDS = Object.keys(tr.PARTS);
-
 const SET = {
   type: 'object',
   properties: {
@@ -110,52 +126,74 @@ Sets:
 - Pull-ups and other bodyweight moves: kg = 0, add = extra weight on the body in kg (0 if none).
 - When reps or weight of a set is not said, take it from "current" for the same exercise, or from the previous set.
 - note: a short Chinese phrase only when the user said how that set felt (e.g. "很吃力", "力竭", "腰有点不舒服"), otherwise "". hard = true when the set was hard, 吃力, 力竭, failed or barely completed.
-- A feeling said about "最后一组" belongs to the last set of that exercise.`;
+- A feeling said about "最后一组" belongs to the last set of that exercise.
 
-const API_ERR = {
-  401: 'Claude API 密钥不对，去设置里重新填',
-  403: '这个 Claude API 密钥没有权限',
-  429: 'Claude 请求太多，等一下再试',
-  529: 'Claude 现在太忙，等一下再试',
+Reply with the JSON object only.`;
+
+const ERR = {
+  openrouter: { 401: 'OpenRouter 密钥不对，去设置里重新填', 402: 'OpenRouter 余额不够了', 403: 'OpenRouter 拒绝了这次请求', 408: 'OpenRouter 超时，再试一次', 429: 'OpenRouter 请求太多，等一下再试', 502: '模型暂时不可用，等一下再试', 503: '模型暂时不可用，等一下再试' },
+  anthropic: { 401: 'Anthropic 密钥不对，去设置里重新填', 403: '这个 Anthropic 密钥没有权限', 429: 'Claude 请求太多，等一下再试', 529: 'Claude 现在太忙，等一下再试' },
 };
 
-async function post(body, withFallback) {
-  const headers = {
-    'content-type': 'application/json',
-    'x-api-key': getKey(),
-    'anthropic-version': '2026-10-21',
-    'anthropic-dangerous-direct-browser-access': 'true',
-  };
-  if (withFallback) headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+async function call(url, headers, body) {
   let r;
-  try {
-    r = await fetch(URL, { method: 'POST', headers, body: JSON.stringify(withFallback ? { ...body, fallbacks: 'default' } : body) });
-  } catch { throw new Error('连不上 Claude，检查一下网络'); }
+  try { r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) }); } catch { throw new Error('连不上 AI，检查一下网络'); }
   const j = await r.json().catch(() => ({}));
   return { r, j };
 }
 
-// Parse a transcript into [{ lift, sets, def? }] (def = name/parts/bodyweight for a new exercise).
-export async function parse(said, current = []) {
-  if (!getKey()) throw Object.assign(new Error('先在设置里填 Claude API 密钥，才能用语音记录'), { code: 'NO_KEY' });
+function fail(p, r, j) {
+  const msg = j.error?.message || j.error?.metadata?.raw || '';
+  return new Error(ERR[p][r.status] || `AI 出错（${r.status}）${msg ? '：' + String(msg).slice(0, 120) : ''}`);
+}
+
+function jsonOf(text) {
+  const t = String(text || '').replace(/```(?:json)?/g, '');
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  try { return JSON.parse(t.slice(a, b + 1)); } catch { throw new Error('AI 没给出能用的结果，再说一次'); }
+}
+
+// The AI path: returns [{ lift, sets, def? }] (def = name/parts/bodyweight for a new exercise).
+export async function parseAI(said, current = []) {
+  const key = getKey(), p = provider(key);
+  if (!key) throw Object.assign(new Error('没有填 AI 密钥'), { code: 'NO_KEY' });
+  if (p === 'unknown') throw new Error('认不出这个密钥：OpenRouter 的以 sk-or- 开头，Anthropic 的以 sk-ant- 开头');
+  const model = MODELS[getModel()][p];
   const lifts = Object.fromEntries(tr.allLiftIds().map((id) => [id, tr.lift(id).name]));
-  const body = {
-    model: MODEL,
-    max_tokens: 8000,
-    system: SYSTEM,
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
-    messages: [{ role: 'user', content: JSON.stringify({ lifts, current: current.map((it) => ({ lift: it.lift, sets: it.sets })), said }) }],
-  };
-  let { r, j } = await post(body, true);
-  // Older accounts may not have the fallback beta yet: retry once without it.
-  if (r.status === 400 && /fallback|beta/i.test(j.error?.message || '')) ({ r, j } = await post(body, false));
-  if (!r.ok) throw new Error(API_ERR[r.status] || `Claude 出错（${r.status}）：${j.error?.message || ''}`);
-  if (j.stop_reason === 'refusal') throw new Error('Claude 没有处理这段话，换个说法再试');
-  if (j.stop_reason === 'max_tokens') throw new Error('说的内容太长，分两次说');
-  const text = (j.content || []).find((b) => b.type === 'text')?.text;
-  let out;
-  try { out = JSON.parse(text); } catch { throw new Error('没听懂，再说一次'); }
-  return normalize(out.items || []);
+  const user = JSON.stringify({ lifts, current: current.map((it) => ({ lift: it.lift, sets: it.sets })), said });
+  let text;
+  if (p === 'openrouter') {
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + key };
+    const base = { model, max_tokens: 4000, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }] };
+    const strict = { ...base, response_format: { type: 'json_schema', json_schema: { name: 'training_log', strict: true, schema: SCHEMA } }, reasoning: { effort: 'low' } };
+    let { r, j } = await call(url, headers, strict);
+    // an endpoint that doesn't take the schema or the effort setting: ask again with the prompt alone
+    if (r.status === 400) ({ r, j } = await call(url, headers, base));
+    if (!r.ok || j.error) throw fail(p, r, j);
+    const c = j.choices?.[0];
+    if (c?.finish_reason === 'length') throw new Error('说的内容太长，分两次说');
+    const m = c?.message?.content;
+    text = Array.isArray(m) ? m.map((x) => x.text || '').join('') : m;
+  } else {
+    const headers = {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2026-10-21',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    };
+    const body = {
+      model, max_tokens: 4000, system: SYSTEM,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+      messages: [{ role: 'user', content: user }],
+    };
+    const { r, j } = await call('https://api.anthropic.com/v1/messages', headers, body);
+    if (!r.ok) throw fail(p, r, j);
+    if (j.stop_reason === 'refusal') throw new Error('模型没有处理这段话，换个说法再试');
+    if (j.stop_reason === 'max_tokens') throw new Error('说的内容太长，分两次说');
+    text = (j.content || []).find((b) => b.type === 'text')?.text;
+  }
+  return normalize(jsonOf(text).items || []);
 }
 
 function normalize(items) {
@@ -173,7 +211,7 @@ function normalize(items) {
     const out = { lift: id, sets };
     if (!known.has(id)) {
       const parts = {};
-      (it.parts || []).forEach((p, i) => { if (tr.PARTS[p]) parts[p] = i === 0 ? 1 : 0.5; });
+      (it.parts || []).forEach((q, i) => { if (tr.PARTS[q]) parts[q] = i === 0 ? 1 : 0.5; });
       out.def = { name: String(it.name || id).slice(0, 20), parts, bodyweight: !!it.bodyweight };
     }
     return out;
@@ -182,6 +220,6 @@ function normalize(items) {
 
 // Quick check that the key works (used by the settings sheet).
 export async function test() {
-  const items = await parse('深蹲 100 公斤 5 组 5 个');
+  const items = await parseAI('深蹲 100 公斤 5 组 5 个');
   return items[0]?.lift === 'squat';
 }

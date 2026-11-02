@@ -59,6 +59,8 @@ function banner() {
   if (S.demo) h = '现在看到的是示例数据 <button data-act="settings">连接我的 Fitbit</button>';
   else if (S.expired) h = '登录过期了（测试模式每 7 天一次）<button data-act="login">重新连接</button>';
   else if (S.err) h = `<span class="warn">${esc(S.err)}</span> <button data-act="sync">重试</button>`;
+  else if (auth.isSignedIn() && !drive.granted()) h = '训练记录自动备份到 Google Drive，还差授权一次 <button data-act="login">授权</button>';
+  else if (auth.isSignedIn() && drive.status().kind === 'disabled') h = `备份还差一步：在 Google Cloud 里启用 Drive API <a class="bn" href="${esc(drive.status().link)}" target="_blank" rel="noopener">去启用</a>`;
   b.innerHTML = h;
   b.hidden = !h;
 }
@@ -183,7 +185,7 @@ async function summarize(start, end, peaks) {
 const pendingOf = (id) => tr.get().pending.find((p) => p.id === id);
 const editPending = (p, talk = false) => {
   const g = tr.guess(p.date);
-  editor.open({ pendingId: p.id, date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, peaks: p.peaks, items: g?.items || [] }, { talk });
+  editor.open({ pendingId: p.id, date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, peaks: p.peaks, items: g?.items || [], fromGuess: !!g }, { talk });
 };
 
 async function confirmPending(p) {
@@ -193,6 +195,29 @@ async function confirmPending(p) {
   const s = await tr.saveSession({ date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, items: g.items, pendingId: p.id, hr });
   render({ keepScroll: true });
   ui.toast('已保存', { action: '撤销', onAction: async () => { await tr.deleteSession(s.id); tr.get().pending.push(p); await tr.save(); render({ keepScroll: true }); } });
+}
+
+// ---------- backup ----------
+function backupState(ds) {
+  if (S.demo) return '连接 Fitbit 后自动开始';
+  if (!auth.isSignedIn()) return '重新连接后继续';
+  if (!drive.granted()) return '还差授权一次';
+  if (ds.kind === 'disabled') return '还差启用 Drive API';
+  if (ds.at) return `上次 ${ago(ds.at)}`;
+  return tr.get().sessions.length ? '等待第一次备份' : '有训练记录后开始';
+}
+
+// On open / after login: bring the log back on a new phone, or upload what changed since the last backup.
+let checking = false;
+async function backupCheck() {
+  if (S.demo || checking || !auth.isSignedIn() || !drive.granted()) { banner(); return; }
+  checking = true;
+  try {
+    if (!tr.get().sessions.length) await autoRestore();
+    else if (drive.behind(tr.get())) await drive.backup(tr.get()).catch((e) => console.warn('backup', e));
+  } finally { checking = false; }
+  banner();
+  if ($('.settings')) openSettings();
 }
 
 // ---------- settings ----------
@@ -227,15 +252,20 @@ function openSettings() {
       </details>
     </section>
     ${devs.length ? `<section class="set-g"><h4>设备</h4>${devs.map((d) => `<div class="set-row"><span>${esc(d.name)}</span><small>${d.battery != null ? `电量 ${d.battery}%` : BATT[d.batteryStatus] || ''}${d.lastSync ? ` · 同步于 ${ago(d.lastSync)}` : ''}</small></div>`).join('')}</section>` : ''}
-    <section class="set-g"><h4>语音记录（Claude）</h4>
-      <label class="field"><span>Anthropic API 密钥</span><input id="akey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(voice.getKey())}" placeholder="sk-ant-…"></label>
-      <div class="note">只保存在这台手机上。按住说话后，识别出的文字会发给 Claude，变成动作、组数和重量。</div>
-      <button class="btn ghost" data-act="key-save">保存并试一下</button>
+    <section class="set-g"><h4>语音记录</h4>
+      <div class="note">${voice.canListen() ? '按住“按住说话”说' : '点“说”，再点键盘上的 🎤'}，比如“深蹲 100 公斤 5 组 5 个，引体 4 组 8 个，最后一组很吃力”。手机自己就能读懂，不需要密钥。</div>
+      <details class="sub-d"${voice.hasKey() ? ' open' : ''}><summary>手机读不懂的交给 AI（可选）</summary>
+        <label class="field"><span>OpenRouter 或 Anthropic 密钥</span><input id="akey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(voice.getKey())}" placeholder="sk-or-… 或 sk-ant-…"></label>
+        <label class="field row"><span>模型</span><select id="ai-model">${Object.entries(voice.MODELS).map(([k, m]) => `<option value="${k}"${voice.getModel() === k ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
+        <div class="note">密钥只保存在这台手机上。只有手机读不懂的那句话会发给模型。</div>
+        <button class="btn ghost" data-act="key-save">保存并试一下</button>
+      </details>
     </section>
     <section class="set-g"><h4>训练记录备份</h4>
-      <label class="sw"><input type="checkbox" id="drive-on"${ds.on ? ' checked' : ''}${S.demo ? ' disabled' : ''}><span>自动备份到我的 Google Drive</span></label>
-      <div class="note">${S.demo ? '连接 Fitbit 后可以开。' : ds.at ? `上次备份：${ago(ds.at)}` : '还没备份过。'}${ds.err ? ` <span class="warn">${esc(ds.err)}</span>` : ''}</div>
-      ${!S.demo && ds.on ? '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>' : ''}
+      <div class="set-row"><span>自动备份到你的 Google Drive</span><small>${esc(backupState(ds))}</small></div>
+      ${ds.err && ds.kind !== 'net' ? `<div class="note"><span class="warn">${esc(ds.err)}</span></div>` : ''}
+      ${!S.demo && signed && ds.kind === 'disabled' ? `<a class="btn pri" href="${esc(ds.link)}" target="_blank" rel="noopener">去 Google Cloud 启用 Drive API</a>` : ''}
+      ${!S.demo && signed ? (drive.granted() ? '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>' : '<button class="btn pri" data-act="login">授权 Google Drive</button>') : ''}
       <button class="btn ghost" data-act="export">导出训练记录（JSON）</button>
     </section>
     <section class="set-g"><h4>训练建议</h4>
@@ -245,27 +275,18 @@ function openSettings() {
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
       <button class="btn ghost" data-act="resync"${S.demo ? ' disabled' : ''}>重新下载最近 120 天</button>
     </section>
-    <div class="note center">我的健康 v2 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
+    <div class="note center">我的健康 v2.1 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
 }
 
 async function settingsChange(e) {
   const t = e.target;
   if (t.id === 'hints') { tr.get().settings.hints = t.checked; await tr.save(); render({ keepScroll: true }); }
-  if (t.id === 'drive-on') {
-    if (!t.checked) { drive.setOn(false); return; }
-    if (!auth.isSignedIn()) { t.checked = false; ui.toast('先连接 Fitbit'); return; }
-    drive.setOn(true);
-    if (!drive.granted()) {
-      if (!confirm('还需要授权一次 Google Drive。这个 app 只能看到它自己建的备份文件。现在去授权？')) { drive.setOn(false); t.checked = false; return; }
-      await auth.startLogin({ extraScopes: [drive.SCOPE] });
-      return;
-    }
-    await backupNow();
-  }
+  if (t.id === 'ai-model') { voice.setModel(t.value); ui.toast(`之后用 ${voice.MODELS[voice.getModel()].label}`); }
 }
 
 async function backupNow() {
-  try { await drive.backup(tr.get()); ui.toast('已备份到 Google Drive'); } catch (e) { ui.toast(e.message === 'NOT_SIGNED_IN' ? '登录过期，先重新连接' : e.message); }
+  try { await drive.backup(tr.get()); ui.toast('已备份到 Google Drive'); } catch (e) { ui.toast(e.message); }
+  banner();
   if ($('.settings')) openSettings();
 }
 
@@ -278,7 +299,7 @@ function exportJson() {
   setTimeout(() => URL.revokeObjectURL(a.href), 30e3);
 }
 
-const login = () => auth.startLogin({ extraScopes: drive.status().on ? [drive.SCOPE] : [] });
+const login = () => auth.startLogin();
 
 // ---------- events ----------
 async function onAction(el) {
@@ -299,6 +320,7 @@ async function onAction(el) {
       break;
     }
     case 'pend-ok': { const p = pendingOf(id); if (p) await confirmPending(p); break; }
+    case 'pend-talk': { const p = pendingOf(id); if (p) editPending(p, true); break; } // tap mode; must stay synchronous (keyboard)
     case 'pend-edit': { const p = pendingOf(id); if (p) editPending(p); break; }
     case 'pend-no': await tr.dismissPending(id); render({ keepScroll: true }); ui.toast('好的，这次不算训练'); break;
     case 'sess-new': editor.open({ date: el.dataset.date && el.dataset.date <= ymd(today()) ? el.dataset.date : ymd(today()), items: [] }); break;
@@ -342,7 +364,8 @@ async function onAction(el) {
       voice.setKey(k);
       if (!k) { ui.toast('已清除密钥'); break; }
       el.disabled = true; el.textContent = '试一下…';
-      try { ui.toast((await voice.test()) ? '密钥可以用 ✓' : '能连上 Claude，但结果不对'); } catch (e) { ui.toast(e.message); }
+      const who = `${voice.provider() === 'openrouter' ? 'OpenRouter' : 'Anthropic'} · ${voice.MODELS[voice.getModel()].label}`;
+      try { ui.toast((await voice.test()) ? `密钥可以用 ✓（${who}）` : '能连上模型，但结果不对'); } catch (e) { ui.toast(e.message, { ms: 5000 }); }
       el.disabled = false; el.textContent = '保存并试一下';
       break;
     }
@@ -376,13 +399,13 @@ function bind() {
     if (n) { nav(+n.dataset.nav); return; }
     const el = ev.target.closest('[data-act]');
     if (!el || el.closest('.ed-sheet')) return;
-    if (el.dataset.act === 'pend-talk') return; // press and hold, see below
+    if (el.dataset.act === 'pend-talk' && voice.canListen()) return; // press and hold, see below
     try { await onAction(el); } catch (e) { console.error(e); ui.toast(e.message); }
   });
   // hold "按住说话" on a confirm card: open the editor with the guess and start listening
   document.addEventListener('pointerdown', (ev) => {
     const b = ev.target.closest('[data-act="pend-talk"]');
-    if (!b) return;
+    if (!b || !voice.canListen()) return;
     ev.preventDefault();
     const p = pendingOf(b.dataset.id);
     if (p) editPending(p, true);
@@ -410,7 +433,8 @@ function bind() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (S.dayKey !== ymd(today()) && S.model) { S.v = data.derive(S.model); S.dayKey = ymd(today()); render(); }
-    if (!S.model || Date.now() - (S.model.syncedAt || 0) > 10 * 60e3) syncNow();
+    if (!S.model || Date.now() - (S.model.syncedAt || 0) > 10 * 60e3) syncNow().then(backupCheck);
+    else if (drive.status().err) backupCheck(); // e.g. just came back from turning on the Drive API
   });
 }
 
@@ -419,10 +443,7 @@ async function afterLogin() {
   S.v = S.model ? data.derive(S.model) : null;
   render();
   await syncNow({ force: !S.model });
-  if (drive.status().on && drive.granted()) {
-    if (!tr.get().sessions.length) await autoRestore();
-    else drive.backupSoon(() => tr.get(), 500);
-  }
+  await backupCheck();
 }
 
 // New phone (or cleared storage): bring the training log back from Drive.
@@ -439,7 +460,7 @@ async function autoRestore() {
   store.persist();
   try { Object.keys(localStorage).filter((k) => k.startsWith('c:')).forEach((k) => localStorage.removeItem(k)); } catch {} // v1 cache
   editor.setHooks({ summarize, done: () => render({ keepScroll: true }), openSettings });
-  tr.setOnSave(() => { if (!S.demo) drive.backupSoon(() => tr.get()); });
+  tr.setOnSave(() => { if (!S.demo) drive.backupSoon(() => tr.get(), 4000, banner); });
   let justLoggedIn = false;
   try { justLoggedIn = await auth.handleRedirect(); } catch (e) { S.err = e.message; }
   // Real mode when signed in, or when real data is cached (sign-in expired: keep showing it).
@@ -450,7 +471,8 @@ async function autoRestore() {
   S.expired = !S.demo && !auth.isSignedIn();
   if (S.model) S.v = data.derive(S.model);
   render();
-  if (justLoggedIn) { ui.toast('已连接 Fitbit'); await syncNow({ force: !S.model }); if (drive.status().on && drive.granted() && !tr.get().sessions.length) await autoRestore(); else drive.backupSoon(() => tr.get(), 1500); }
+  if (justLoggedIn) { ui.toast('已连接 Fitbit'); await syncNow({ force: !S.model }); }
   else await syncNow();
+  await backupCheck();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

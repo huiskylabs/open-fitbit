@@ -1,9 +1,9 @@
 // App-shell cache so the app opens instantly and offline. API calls are never cached here.
-const V = 'shell-v2';
+const V = 'shell-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png',
   'js/util.js', 'js/store.js', 'js/auth.js', 'js/api.js', 'js/data.js', 'js/scores.js', 'js/training.js', 'js/demo.js',
-  'js/charts.js', 'js/tcharts.js', 'js/ui.js', 'js/voice.js', 'js/drive.js', 'js/trainui.js',
+  'js/charts.js', 'js/tcharts.js', 'js/ui.js', 'js/sayparse.js', 'js/voice.js', 'js/drive.js', 'js/trainui.js',
   'js/pages/common.js', 'js/pages/today.js', 'js/pages/sleep.js', 'js/pages/workouts.js', 'js/pages/trainpage.js', 'js/pages/heart.js',
 ];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))); self.skipWaiting(); });

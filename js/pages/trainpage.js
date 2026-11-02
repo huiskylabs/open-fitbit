@@ -5,6 +5,7 @@ import * as T from '../tcharts.js';
 import { tipAttr } from '../charts.js';
 import { card, empty, workouts } from './common.js';
 import { hrSeries } from '../data.js';
+import { talkLabel } from '../trainui.js';
 
 const scaleFor = (items) => {
   const all = items.flatMap((it) => it.sets.map((s) => ({ id: it.lift, s })));
@@ -35,7 +36,7 @@ export function pendingCards(ctx, { date } = {}) {
       ${g ? `<div class="sub-h">猜的内容 <span class="muted">按上次 + 轮换预填</span></div>${liftRows(g.items)}` : '<div class="sub-h">第一次：说一下练了什么，以后就会自动猜</div>'}
       <div class="btns">
         ${g ? `<button class="btn pri" data-act="pend-ok" data-id="${esc(p.id)}">✓ 对</button>` : ''}
-        <button class="btn talk" data-act="pend-talk" data-id="${esc(p.id)}">按住说话</button>
+        <button class="btn talk" data-act="pend-talk" data-id="${esc(p.id)}">${talkLabel()}</button>
         <button class="btn ghost" data-act="pend-edit" data-id="${esc(p.id)}">改</button>
       </div>`;
     return card('检测到一次训练', body, { cls: 'confirm', right: `<span class="sub">${when}</span><button class="x" data-act="pend-no" data-id="${esc(p.id)}" aria-label="不是训练">×</button>` });

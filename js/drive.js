@@ -1,6 +1,6 @@
-// Backup of the training log to the user's own Google Drive.
+// Backup of the training log to the user's own Google Drive. Always on once signed in.
 // Scope drive.file: the app can only see the one file it created, nothing else in Drive.
-import { accessToken, hasScope } from './auth.js';
+import { accessToken, hasScope, getConfig } from './auth.js';
 
 export const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const NAME = '我的健康 训练记录备份.json';
@@ -10,23 +10,53 @@ const LS = {
   get() { try { return JSON.parse(localStorage.getItem(K)) || {}; } catch { return {}; } },
   set(v) { try { localStorage.setItem(K, JSON.stringify(v)); } catch {} },
 };
-// { on, at (last backup ms), err, fileId }
-export const status = () => ({ on: false, at: 0, err: '', fileId: null, ...LS.get() });
+// { at (last backup ms), err, kind: '' | 'disabled' | 'scope' | 'auth' | 'net' | 'other', link, fileId }
+export const status = () => ({ at: 0, err: '', kind: '', link: '', fileId: null, ...LS.get() });
 const update = (patch) => LS.set({ ...status(), ...patch });
-export const setOn = (on) => update({ on, err: '' });
 export const granted = () => hasScope(SCOPE);
+// the log changed after the last backup
+export const behind = (training) => (training?.sessions?.length || 0) > 0 && (training.updatedAt || 0) > status().at;
+
+// Where to turn the Drive API on for the Cloud project this app's OAuth client belongs to.
+// The client ID starts with the project number.
+function enableLink() {
+  const n = (getConfig().clientId || '').split('-')[0];
+  return /^\d+$/.test(n)
+    ? `https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=${n}`
+    : 'https://console.cloud.google.com/apis/library/drive.googleapis.com';
+}
+
+const fail = (msg, kind, link = '') => Object.assign(new Error(msg), { kind, link });
 
 async function req(url, opts = {}) {
-  const tok = await accessToken();
+  let tok;
+  try { tok = await accessToken(); } catch (e) { throw fail('登录过期，重新连接后会继续备份', 'auth'); }
   let r;
-  try { r = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + tok, ...(opts.headers || {}) } }); } catch { throw new Error('没有网络'); }
+  try { r = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + tok, ...(opts.headers || {}) } }); } catch { throw fail('没有网络，稍后自动再备份', 'net'); }
   if (r.ok || r.status === 404) return r;
   const j = await r.json().catch(() => ({}));
   const raw = JSON.stringify(j);
-  if (r.status === 401) throw new Error('NOT_SIGNED_IN');
-  if (/accessNotConfigured|SERVICE_DISABLED|has not been used/.test(raw)) throw new Error('Google Cloud 项目里还没启用 Google Drive API');
-  if (r.status === 403 && /insufficient|scope/i.test(raw)) throw new Error('需要重新授权 Google Drive');
-  throw new Error(`Google Drive ${r.status}：${j.error?.message || r.statusText}`);
+  if (r.status === 401) throw fail('登录过期，重新连接后会继续备份', 'auth');
+  if (/accessNotConfigured|SERVICE_DISABLED|has not been used|it is disabled/.test(raw)) {
+    const link = (j.error?.details || []).map((d) => d?.metadata?.activationUrl).find(Boolean)
+      || (raw.match(/https:\/\/console\.developers\.google\.com\/apis\/api\/drive\.googleapis\.com\/overview\?project=[\w-]+/) || [])[0]
+      || enableLink();
+    throw fail('Google Cloud 项目里还没启用 Google Drive API', 'disabled', link);
+  }
+  if (r.status === 403 && /insufficient|scope/i.test(raw)) throw fail('需要再授权一次 Google Drive', 'scope');
+  throw fail(`Google Drive ${r.status}：${j.error?.message || r.statusText}`, 'other');
+}
+
+// run a Drive call and remember how it went (the banner and settings read it)
+async function track(fn) {
+  try {
+    const out = await fn();
+    update({ err: '', kind: '', link: '' });
+    return out;
+  } catch (e) {
+    update({ err: e.message, kind: e.kind || 'other', link: e.link || '' });
+    throw e;
+  }
 }
 
 async function findFile() {
@@ -50,37 +80,36 @@ async function create(body) {
   return (await r.json()).id;
 }
 
-export async function backup(training) {
-  const body = JSON.stringify({ app: 'open-fitbit', kind: 'training-log', savedAt: Date.now(), training });
-  try {
+export function backup(training) {
+  return track(async () => {
+    const body = JSON.stringify({ app: 'open-fitbit', kind: 'training-log', savedAt: Date.now(), training });
     let id = await findFile();
     if (id) {
       const r = await req(`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
       if (r.status === 404) id = null; // deleted in Drive: make a new one
     }
     if (!id) id = await create(body);
-    update({ fileId: id, at: Date.now(), err: '' });
-  } catch (e) {
-    update({ err: e.message === 'NOT_SIGNED_IN' ? '登录过期，重新连接后会继续备份' : e.message });
-    throw e;
-  }
+    update({ fileId: id, at: Date.now() });
+  });
 }
 
 // The saved training log, or null when there is no backup yet.
-export async function restore() {
-  update({ fileId: null });
-  const id = await findFile();
-  if (!id) return null;
-  const r = await req(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
-  if (r.status === 404) return null;
-  const j = await r.json().catch(() => null);
-  return j?.training || null;
+export function restore() {
+  return track(async () => {
+    update({ fileId: null });
+    const id = await findFile();
+    if (!id) return null;
+    const r = await req(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+    if (r.status === 404) return null;
+    const j = await r.json().catch(() => null);
+    return j?.training || null;
+  });
 }
 
 // Back up a few seconds after the last change (several edits in a row → one upload).
 let timer = null;
-export function backupSoon(getTraining, delay = 4000) {
-  if (!status().on || !granted()) return;
+export function backupSoon(getTraining, delay = 4000, done) {
+  if (!granted()) return;
   clearTimeout(timer);
-  timer = setTimeout(() => backup(getTraining()).catch((e) => console.warn('backup', e)), delay);
+  timer = setTimeout(() => backup(getTraining()).catch((e) => console.warn('backup', e)).finally(() => done?.()), delay);
 }

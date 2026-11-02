@@ -105,6 +105,7 @@ small { font-size: .78em; }
 
 .banner { margin: 2px 16px 10px; padding: 9px 12px; border-radius: 12px; background: var(--card); color: var(--text-2); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .banner button { background: none; border: 0; color: var(--accent); padding: 0; font-weight: 600; }
+.banner a.bn { color: var(--accent); font-weight: 600; text-decoration: none; }
 .warn { color: var(--warn); }
 .muted { color: var(--muted); }
 
@@ -276,7 +277,7 @@ svg .hit, svg rect.hit { fill: transparent; }
 .btn.danger { color: var(--warn); }
 .btn.small { padding: 7px 10px; font-size: 13px; border-radius: 11px; width: auto; }
 .btn.talk { background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
-.btn.talk::before { content: ""; display: inline-block; width: 9px; height: 13px; border: 2px solid currentColor; border-radius: 6px; margin-right: 7px; vertical-align: -2px; }
+.btn.talk::before { content: ""; display: inline-block; width: 17px; height: 17px; margin-right: 5px; vertical-align: -3px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Crect x='8.5' y='2.5' width='7' height='12.5' rx='3.5'/%3E%3Cpath d='M5 11.5a7 7 0 0 0 14 0M12 18.5v3'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Crect x='8.5' y='2.5' width='7' height='12.5' rx='3.5'/%3E%3Cpath d='M5 11.5a7 7 0 0 0 14 0M12 18.5v3'/%3E%3C/svg%3E") center / contain no-repeat; }
 .btns { display: flex; gap: 8px; margin-top: 12px; }
 .btns .btn { margin-top: 0; flex: 1; }
 .btns.small { justify-content: flex-end; margin-top: 8px; }
@@ -289,6 +290,9 @@ svg .hit, svg rect.hit { fill: transparent; }
 .field.row { display: flex; align-items: center; gap: 10px; }
 .field.row > span { margin: 0; flex: none; }
 .field.row input { width: auto; flex: 1; }
+.field select { width: 100%; padding: 10px 34px 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 12px center / 12px 8px no-repeat; color: var(--text); font: inherit; font-size: 16px; -webkit-appearance: none; appearance: none; }
+.field.row select { width: auto; flex: 1; }
+a.btn { text-decoration: none; }
 .note { font-size: 12px; color: var(--muted); margin: 6px 0 10px; line-height: 1.5; }
 .note.center { text-align: center; margin-top: 18px; }
 code { font-size: 12px; background: var(--card-2); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
@@ -370,6 +374,16 @@ details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin
 .spin-dot { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
 @keyframes pulse { 50% { opacity: .25; } }
 .vo textarea { resize: none; font-size: 16px; }
+/* typing / keyboard dictation: at the top, so the keyboard doesn't cover it */
+.vo.text { align-items: flex-start; }
+.vo.text .vo-in { border-radius: 0 0 22px 22px; padding: calc(var(--safe-t) + 14px) 16px 16px; }
+.vo.text .vo-st::before { display: none; }
+.vo-pv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; min-height: 28px; align-items: center; }
+.pv-it { display: inline-flex; align-items: center; gap: 6px; background: var(--card-2); border-radius: 14px; padding: 5px 10px; font-size: 13px; font-weight: 600; }
+.pv-it i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.pv-it small { font-weight: 500; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.pv-unk { font-size: 13px; color: var(--muted); text-decoration: underline wavy color-mix(in srgb, var(--warn) 60%, transparent); text-underline-offset: 3px; }
+.vo-hint { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 7px; }
 
 @media (min-width: 600px) {
   main, .banner { max-width: 560px; margin-left: auto; margin-right: auto; }

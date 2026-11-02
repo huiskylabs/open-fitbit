@@ -1,7 +1,10 @@
-// Training editor (bottom sheet): confirm or correct a detected session, log one by hand,
-// or say it — hold the button, talk, let go; Claude fills in the lifts and sets.
+// Training editor (bottom sheet): confirm or correct a detected session, log one by hand, or say it.
+// Saying it: in the home-screen app, tap 说 and use the 🎤 on the iPhone keyboard; in Safari, hold
+// the button and talk. The phone turns the words into lifts and sets (sayparse.js); an AI model is
+// asked only about words the phone couldn't place, and only when a key is set.
 import * as tr from './training.js';
 import * as voice from './voice.js';
+import { parseLocal } from './sayparse.js';
 import * as T from './tcharts.js';
 import { hrSeries } from './data.js';
 import { openSheet, closeSheet, sheetEl, toast } from './ui.js';
@@ -63,7 +66,7 @@ function html() {
     <h3>${esc(ed.title)}${ed.start ? `<span class="sub">${when()}</span>` : ''}</h3>
     ${ed.start ? '<div class="ed-hr"></div>' : `<label class="field row"><span>日期</span><input type="date" id="ed-date" value="${ed.date}" max="${ymd(today())}"></label>`}
     ${ed.said ? `<div class="ed-said">“${esc(ed.said)}”</div>` : ''}
-    ${ed.items.length ? '' : '<div class="empty sm">按住下面的按钮说，比如“深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力”。也可以点动作名手动加。</div>'}
+    ${ed.items.length ? '' : `<div class="empty sm">${hold() ? '按住下面的按钮说' : '点“说”，再点键盘上的 🎤'}，比如“深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力”。也可以点动作名手动加。</div>`}
     ${ed.items.map((it, i) => `<div class="ed-item" data-i="${i}">
       <div class="ed-ih"><i style="background:${tr.lift(it.lift).color}"></i><b>${esc(nameOf(it.lift))}</b><small>${esc(labelOf(it.lift, it.sets))}</small><button type="button" class="x" data-ed="del-item" data-i="${i}" aria-label="删除这个动作">×</button></div>
       <div class="ed-viz">${viz(it, maxReps, maxLoad)}</div>
@@ -72,7 +75,7 @@ function html() {
     </div>`).join('')}
     <div class="ed-add"><span class="k">加动作</span>${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}"><i style="background:${tr.lift(id).color}"></i>${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>
     <div class="ed-bar">
-      <button type="button" class="btn talk" data-ed="talk">按住说话</button>
+      <button type="button" class="btn talk" data-ed="talk">${talkLabel()}</button>
       <button type="button" class="btn pri" data-ed="save">保存</button>
     </div>
   </div>`;
@@ -115,6 +118,7 @@ function onInput(e) {
   if (!s) return;
   const v = Math.max(0, parseFloat(String(t.value).replace(',', '.')) || 0);
   if (t.dataset.f === 'reps') s.reps = Math.round(v); else s[t.dataset.f] = v;
+  ed.fromGuess = false;
   // update the label and blocks only, so the next field keeps focus and the keyboard stays up
   const i = +t.dataset.i, it = ed.items[i];
   const box = sheetEl()?.querySelector(`.ed-item[data-i="${i}"]`);
@@ -156,9 +160,10 @@ async function onClick(e) {
       break;
     }
     case 'save': await save(); return;
-    case 'talk': return; // handled on pointerdown
+    case 'talk': if (!hold()) startTalk(); return; // tap: keyboard dictation; hold: see onDown
     default: return;
   }
+  ed.fromGuess = false;
   draw();
 }
 
@@ -181,32 +186,66 @@ async function save() {
 }
 
 // ---------- voice ----------
+// hold to talk where the page may use speech recognition (Safari); elsewhere (the home-screen app)
+// tap and dictate with the keyboard's 🎤
+const hold = () => voice.canListen();
+export const talkLabel = () => (hold() ? '按住说话' : '说');
+
 let talk = null; // { rec, t0, mode: 'hold' | 'tap' }
 let vo = null;
 
 function voShow({ said = '', status = '', buttons = '', text = false } = {}) {
   if (!vo) {
     vo = document.createElement('div');
-    vo.className = 'vo';
     vo.addEventListener('click', onVoClick);
+    vo.addEventListener('input', preview);
+    vo.addEventListener('keydown', onVoKey);
     document.body.append(vo);
   }
+  vo.className = text ? 'vo text' : 'vo';
   vo.innerHTML = `<div class="vo-in">
-    ${text ? `<textarea id="vo-text" rows="3" placeholder="深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力">${esc(said)}</textarea>` : `<div class="vo-said">${esc(said) || '<span class="muted">…</span>'}</div>`}
-    <div class="vo-st">${status}</div>
+    ${text ? `<textarea id="vo-text" rows="3" enterkeyhint="done" placeholder="深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力">${esc(said)}</textarea>
+      <div class="vo-pv"></div>` : `<div class="vo-said">${esc(said) || '<span class="muted">…</span>'}</div>`}
+    ${status ? `<div class="vo-st">${status}</div>` : ''}
     ${buttons ? `<div class="btns">${buttons}</div>` : ''}</div>`;
-  if (text) setTimeout(() => vo?.querySelector('textarea')?.focus(), 50);
+  if (text) {
+    // focus inside the tap itself, or iOS won't bring up the keyboard
+    const ta = vo.querySelector('textarea');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    preview();
+  }
 }
 const voSaid = (s) => { const el = vo?.querySelector('.vo-said'); if (el) el.textContent = s || '…'; };
 function voHide() { vo?.remove(); vo = null; }
 
-function textMode(msg = '') {
-  voShow({ text: true, said: ed?.said || '', status: msg || '用键盘上的 🎤 说，或者直接打字', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="parse">好了</button>' });
+const current = () => (ed ? ed.items.map((it) => ({ lift: it.lift, sets: it.sets })) : []);
+const nameIn = (it) => it.def?.name || nameOf(it.lift);
+
+// what the phone understands so far, as you speak
+function preview() {
+  const ta = vo?.querySelector('textarea'), pv = vo?.querySelector('.vo-pv');
+  if (!ta || !pv || !ed) return;
+  const t = ta.value.trim();
+  if (!t) { pv.innerHTML = '<span class="vo-hint">点键盘上的 🎤 说，说完点“好了”</span>'; return; }
+  const r = parseLocal(t, current(), { fromGuess: !!ed.fromGuess });
+  const chip = (it) => {
+    const bw = it.def ? it.def.bodyweight : tr.lift(it.lift).bodyweight;
+    const top = Math.max(0, ...it.sets.map((s) => (bw ? s.add || 0 : s.kg || 0)));
+    const reps = it.sets.map((s) => s.reps), same = reps.every((x) => x === reps[0]);
+    const lbl = `${same ? `${it.sets.length}×${reps[0]}` : reps.join('/')}${bw ? (top ? ` +${fmtKg(top)}` : '') : ` · ${top ? fmtKg(top) : '?'} kg`}${it.sets.some((s) => s.hard) ? ' · 吃力' : ''}`;
+    return `<span class="pv-it"><i style="background:${it.def ? 'var(--c-grey)' : tr.lift(it.lift).color}"></i>${esc(nameIn(it))}<small>${esc(lbl)}</small></span>`;
+  };
+  pv.innerHTML = (r.touched ? r.items.map(chip).join('') : '') + (r.unknown.length ? `<span class="pv-unk" title="没听懂">${esc(r.unknown.join(' '))}</span>` : '');
+}
+
+function textMode(msg = '', said = '') {
+  voShow({ text: true, said, status: msg ? `<span class="warn">${esc(msg)}</span>` : '', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="parse">好了</button>' });
 }
 
 export function startTalk() {
   if (!ed || talk) return;
-  if (!voice.canListen()) { textMode(); return; }
+  if (!hold()) { textMode(); return; }
   voShow({ status: '正在听…　松开结束' });
   const rec = voice.listen({ onText: (f, m) => voSaid(f + m) });
   talk = { rec, t0: Date.now(), mode: 'hold' };
@@ -218,7 +257,7 @@ export function startTalk() {
 
 function release() {
   if (!talk || talk.mode !== 'hold') return;
-  if (Date.now() - talk.t0 < 450) { // a quick tap: keep listening until 完成
+  if (Date.now() - talk.t0 < 450) { // a quick tap: keep listening until 说完了
     talk.mode = 'tap';
     voShow({ said: '', status: '正在听…', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="stop">说完了</button>' });
     return;
@@ -229,33 +268,39 @@ function release() {
 async function finish(said, t0) {
   talk = null;
   if (!ed) { voHide(); return; }
-  if (!said && Date.now() - t0 < 1500) { textMode('这里用不了语音识别，可以用键盘上的 🎤 说，或者打字'); return; } // ended at once: not available here
+  if (!said && Date.now() - t0 < 1500) { textMode('这里用不了语音识别，用键盘上的 🎤 说'); return; } // ended at once: not available here
   if (!said) { voHide(); toast('没听到，再按住说一次'); return; }
   await parseSaid(said);
 }
 
+// The phone reads it first. Words it can't place go to the AI model when a key is set;
+// otherwise what it did understand is filled in and the rest is shown.
 async function parseSaid(said) {
-  voShow({ said, status: '<span class="spin-dot"></span> 解析中…' });
-  try {
-    const items = await voice.parse(said, ed.items.map((it) => ({ lift: it.lift, sets: it.sets })));
+  if (!ed) return;
+  const loc = parseLocal(said, current(), { fromGuess: !!ed.fromGuess });
+  let r = loc, warn = '';
+  if (!loc.sure && voice.hasKey()) {
+    voShow({ said, status: '<span class="spin-dot"></span> 交给 AI 看一下…' });
+    try { r = { items: await voice.parseAI(said, current()), unknown: [], sure: true, touched: true, noKg: [] }; } catch (e) { warn = e.message; }
     if (!ed) return;
-    ed.said = said;
-    for (const it of items) if (it.def) ed.defs[it.lift] = it.def;
-    ed.items = items.map(({ lift, sets }) => ({ lift, sets }));
-    voHide();
-    draw();
-  } catch (e) {
-    if (ed) ed.said = said;
-    voError(e.message, e.code === 'NO_KEY');
   }
+  ed.said = said;
+  if (!r.touched) { voError(warn || (r.unknown.length ? `没听懂：${r.unknown.join('、')}` : '没听懂，换个说法试试')); return; }
+  for (const it of r.items) if (it.def) ed.defs[it.lift] = it.def;
+  ed.items = r.items.map(({ lift, sets }) => ({ lift, sets }));
+  ed.fromGuess = false;
+  voHide();
+  draw();
+  const noKg = (r.noKg || []).map((id) => nameOf(id));
+  if (warn) toast(`AI 没用上（${warn}），先按手机听懂的填了`, { ms: 5000 });
+  else if (!r.sure && r.unknown.length) toast(`这些没听懂：${r.unknown.join('、')}`, { ms: 5000 });
+  else if (noKg.length) toast(`${noKg.join('、')}还没说重量`);
 }
 
-function voError(msg, noKey = false) {
+function voError(msg) {
   voShow({
     said: ed?.said || '', status: `<span class="warn">${esc(msg)}</span>`,
-    buttons: noKey
-      ? '<button type="button" class="btn ghost" data-vo="cancel">先手动改</button><button type="button" class="btn pri" data-vo="settings">去设置</button>'
-      : '<button type="button" class="btn ghost" data-vo="cancel">关闭</button><button type="button" class="btn pri" data-vo="type">打字改</button>',
+    buttons: '<button type="button" class="btn ghost" data-vo="cancel">关闭</button><button type="button" class="btn pri" data-vo="type">再说一次</button>',
   });
 }
 
@@ -265,14 +310,22 @@ function onVoClick(e) {
   const a = b.dataset.vo;
   if (a === 'stop') talk?.rec.stop();
   else if (a === 'cancel') { stopAll(); if (ed) draw(); }
-  else if (a === 'type') textMode();
-  else if (a === 'parse') { const v = vo?.querySelector('textarea')?.value.trim(); if (v) parseSaid(v); else voHide(); }
-  else if (a === 'settings') { stopAll(); closeSheet(); hooks.openSettings?.(); }
+  else if (a === 'type') textMode('', ed?.said || '');
+  else if (a === 'parse') submitText();
+}
+
+function submitText() {
+  const v = vo?.querySelector('textarea')?.value.trim();
+  if (v) parseSaid(v); else voHide();
+}
+
+function onVoKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches('textarea')) { e.preventDefault(); submitText(); }
 }
 
 function onDown(e) {
   const b = e.target.closest('[data-ed="talk"]');
-  if (!b) return;
+  if (!b || !hold()) return;
   e.preventDefault();
   startTalk();
 }
