@@ -1,0 +1,283 @@
+// Training editor (bottom sheet): confirm or correct a detected session, log one by hand,
+// or say it — hold the button, talk, let go; Claude fills in the lifts and sets.
+import * as tr from './training.js';
+import * as voice from './voice.js';
+import * as T from './tcharts.js';
+import { hrSeries } from './data.js';
+import { openSheet, closeSheet, sheetEl, toast } from './ui.js';
+import { esc, md, hm, parseYmd, ymd, today } from './util.js';
+
+let ed = null;
+let hooks = {}; // { summarize(start, end, peaks) → hr summary, done(), openSettings() }
+export const setHooks = (h) => { hooks = h; };
+
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const nameOf = (id) => ed?.defs[id]?.name || tr.lift(id).name;
+const isBw = (id) => (ed?.defs[id] ? !!ed.defs[id].bodyweight : tr.lift(id).bodyweight);
+const stepOf = (id) => (ed?.defs[id] ? 2.5 : tr.lift(id).step || 2.5);
+const fmtKg = (v) => String(Math.round((+v || 0) * 100) / 100);
+const labelOf = (id, sets) => {
+  if (!ed?.defs[id]) return tr.setsLabel(id, sets);
+  const reps = sets.map((s) => s.reps), same = reps.every((r) => r === reps[0]);
+  const top = Math.max(0, ...sets.map((s) => (isBw(id) ? s.add || 0 : s.kg || 0)));
+  const rt = same ? `${sets.length}×${reps[0]}` : reps.join('/');
+  return isBw(id) ? (top ? `${rt} · +${top} kg` : rt) : `${rt} · ${top} kg`;
+};
+
+// init: { id?, pendingId?, date, start?, end?, items, source?, exId?, peaks?, hr?, said? }
+export function open(init, { title, talk = false } = {}) {
+  ed = { ...clone(init), items: clone(init.items || []), defs: {}, title: title || (init.id ? '改训练' : init.start ? '确认训练' : '记一次训练') };
+  draw();
+  if (talk) startTalk();
+}
+
+function when() {
+  if (!ed.start) return '';
+  const d = parseYmd(ed.date);
+  return `${ed.date === ymd(today()) ? '' : md(d) + ' '}${hm(new Date(ed.start))}–${hm(new Date(ed.end))}`;
+}
+
+function setRow(it, i, s, k) {
+  const bw = isBw(it.lift);
+  const f = bw ? 'add' : 'kg';
+  const v = bw ? s.add || 0 : s.kg || 0;
+  return `<div class="ed-set${s.hard ? ' is-hard' : ''}">
+    <span class="n">${k + 1}</span>
+    <span class="stp"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="-1" aria-label="少一次">−</button><input data-f="reps" data-i="${i}" data-k="${k}" inputmode="numeric" value="${s.reps}" aria-label="次数"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="1" aria-label="多一次">+</button><em>次</em></span>
+    <span class="stp w"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="-1" aria-label="减重量">−</button><input data-f="${f}" data-i="${i}" data-k="${k}" inputmode="decimal" value="${fmtKg(v)}" aria-label="${bw ? '负重' : '重量'}"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="1" aria-label="加重量">+</button><em>${bw ? '+kg' : 'kg'}</em></span>
+    <button type="button" class="hard${s.hard ? ' on' : ''}" data-ed="hard" data-i="${i}" data-k="${k}">吃力</button>
+    <button type="button" class="x" data-ed="del-set" data-i="${i}" data-k="${k}" aria-label="删除这组">×</button>
+  </div>${s.note ? `<div class="ed-note">“${esc(s.note)}”</div>` : ''}`;
+}
+
+const scale = () => ({
+  maxReps: Math.max(10, ...ed.items.flatMap((it) => it.sets.map((s) => s.reps))),
+  maxLoad: Math.max(60, ...ed.items.flatMap((it) => it.sets.map((s) => (isBw(it.lift) ? s.add || 0 : s.kg || 0)))),
+});
+const viz = (it, maxReps, maxLoad) => T.setBlocks(it.lift, it.sets.map((s) => (isBw(it.lift) ? { ...s, kg: 0 } : s)), { W: 300, H: 26, maxReps, maxLoad, slots: Math.max(5, it.sets.length) });
+
+function html() {
+  const lib = tr.allLiftIds().filter((id) => !ed.items.some((it) => it.lift === id));
+  const { maxReps, maxLoad } = scale();
+  return `<div class="ed">
+    <h3>${esc(ed.title)}${ed.start ? `<span class="sub">${when()}</span>` : ''}</h3>
+    ${ed.start ? '<div class="ed-hr"></div>' : `<label class="field row"><span>日期</span><input type="date" id="ed-date" value="${ed.date}" max="${ymd(today())}"></label>`}
+    ${ed.said ? `<div class="ed-said">“${esc(ed.said)}”</div>` : ''}
+    ${ed.items.length ? '' : '<div class="empty sm">按住下面的按钮说，比如“深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力”。也可以点动作名手动加。</div>'}
+    ${ed.items.map((it, i) => `<div class="ed-item" data-i="${i}">
+      <div class="ed-ih"><i style="background:${tr.lift(it.lift).color}"></i><b>${esc(nameOf(it.lift))}</b><small>${esc(labelOf(it.lift, it.sets))}</small><button type="button" class="x" data-ed="del-item" data-i="${i}" aria-label="删除这个动作">×</button></div>
+      <div class="ed-viz">${viz(it, maxReps, maxLoad)}</div>
+      ${it.sets.map((s, k) => setRow(it, i, s, k)).join('')}
+      <button type="button" class="btn ghost small add-set" data-ed="add-set" data-i="${i}">+ 一组</button>
+    </div>`).join('')}
+    <div class="ed-add"><span class="k">加动作</span>${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}"><i style="background:${tr.lift(id).color}"></i>${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>
+    <div class="ed-bar">
+      <button type="button" class="btn talk" data-ed="talk">按住说话</button>
+      <button type="button" class="btn pri" data-ed="save">保存</button>
+    </div>
+  </div>`;
+}
+
+function draw() {
+  let el = sheetEl();
+  const box = el?.querySelector('.ed');
+  if (box) {
+    const top = el.scrollTop;
+    box.outerHTML = html();
+    el.scrollTop = top;
+  } else {
+    el = openSheet(html(), { cls: 'ed-sheet', onClose: () => { stopAll(); ed = null; } });
+    el.addEventListener('click', onClick);
+    el.addEventListener('change', onInput);
+    el.addEventListener('pointerdown', onDown);
+  }
+  drawHr();
+}
+
+async function drawHr() {
+  const box = sheetEl()?.querySelector('.ed-hr');
+  if (!box || !ed?.start) return;
+  try {
+    const a = ed.start - 3 * 60e3, b = ed.end + 3 * 60e3;
+    const pts = await hrSeries(a, b, 60);
+    const raw = ed.hr?.peaks?.length ? ed.hr.peaks : ed.peaks || [];
+    const { peaks, spans } = tr.colorPeaks(raw, ed.items);
+    if (box.isConnected) box.innerHTML = T.sessionHr(pts, { start: a, end: b, peaks, spans, H: 90 });
+  } catch { /* no heart rate */ }
+}
+
+// read typed values (inputs are not redrawn while typing)
+function onInput(e) {
+  const t = e.target;
+  if (t.id === 'ed-date') { if (t.value) ed.date = t.value; return; }
+  if (!t.dataset.f) return;
+  const s = ed.items[+t.dataset.i]?.sets[+t.dataset.k];
+  if (!s) return;
+  const v = Math.max(0, parseFloat(String(t.value).replace(',', '.')) || 0);
+  if (t.dataset.f === 'reps') s.reps = Math.round(v); else s[t.dataset.f] = v;
+  // update the label and blocks only, so the next field keeps focus and the keyboard stays up
+  const i = +t.dataset.i, it = ed.items[i];
+  const box = sheetEl()?.querySelector(`.ed-item[data-i="${i}"]`);
+  if (!box) return;
+  const { maxReps, maxLoad } = scale();
+  box.querySelector('.ed-ih small').textContent = labelOf(it.lift, it.sets);
+  box.querySelector('.ed-viz').innerHTML = viz(it, maxReps, maxLoad);
+}
+
+function defaultSets(id) {
+  const last = tr.lastItem(id);
+  if (last) return clone(last.item.sets).map(({ note, hard, ...s }) => s);
+  return isBw(id) ? [{ reps: 8, kg: 0 }] : [{ reps: 5, kg: 60 }];
+}
+
+async function onClick(e) {
+  const b = e.target.closest('[data-ed]');
+  if (!b || !ed) return;
+  const i = +b.dataset.i, k = +b.dataset.k;
+  const it = ed.items[i];
+  switch (b.dataset.ed) {
+    case 'step': {
+      const s = it.sets[k], f = b.dataset.f, d = +b.dataset.d;
+      if (f === 'reps') s.reps = Math.max(1, s.reps + d);
+      else s[f] = Math.max(0, Math.round(((+s[f] || 0) + d * stepOf(it.lift)) * 100) / 100);
+      break;
+    }
+    case 'hard': it.sets[k].hard = !it.sets[k].hard; if (!it.sets[k].hard) delete it.sets[k].note; break;
+    case 'del-set': it.sets.splice(k, 1); if (!it.sets.length) ed.items.splice(i, 1); break;
+    case 'add-set': { const l = it.sets.at(-1) || defaultSets(it.lift)[0]; const { note, hard, ...s } = l; it.sets.push({ ...s }); break; }
+    case 'del-item': ed.items.splice(i, 1); break;
+    case 'add-lift': ed.items.push({ lift: b.dataset.id, sets: defaultSets(b.dataset.id) }); break;
+    case 'new-lift': {
+      const name = (prompt('动作名称（比如：哑铃划船）') || '').trim();
+      if (!name) return;
+      const id = 'c_' + Date.now().toString(36);
+      ed.defs[id] = { name: name.slice(0, 20), parts: {}, bodyweight: /引体|俯卧撑|双杠|臂屈伸|卷腹|平板|悬垂|深蹲跳/.test(name) };
+      ed.items.push({ lift: id, sets: ed.defs[id].bodyweight ? [{ reps: 10, kg: 0 }] : [{ reps: 10, kg: 20 }] });
+      break;
+    }
+    case 'save': await save(); return;
+    case 'talk': return; // handled on pointerdown
+    default: return;
+  }
+  draw();
+}
+
+async function save() {
+  const items = ed.items.filter((it) => it.sets.length);
+  if (!items.length) { toast('还没有动作'); return; }
+  const btn = sheetEl()?.querySelector('[data-ed="save"]');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  for (const it of items) if (ed.defs[it.lift]) tr.ensureLift(it.lift, ed.defs[it.lift]);
+  const s = { date: ed.date, items, ...(ed.id ? { id: ed.id } : {}), ...(ed.pendingId ? { pendingId: ed.pendingId } : {}) };
+  for (const k of ['start', 'end', 'source', 'exId', 'said']) if (ed[k] != null) s[k] = ed[k];
+  if (!ed.start) s.source = 'manual';
+  if (ed.hr) s.hr = ed.hr;
+  else if (ed.start && hooks.summarize) s.hr = await hooks.summarize(ed.start, ed.end, ed.peaks).catch(() => null);
+  await tr.saveSession(s);
+  ed = null;
+  closeSheet();
+  toast('已保存');
+  hooks.done?.();
+}
+
+// ---------- voice ----------
+let talk = null; // { rec, t0, mode: 'hold' | 'tap' }
+let vo = null;
+
+function voShow({ said = '', status = '', buttons = '', text = false } = {}) {
+  if (!vo) {
+    vo = document.createElement('div');
+    vo.className = 'vo';
+    vo.addEventListener('click', onVoClick);
+    document.body.append(vo);
+  }
+  vo.innerHTML = `<div class="vo-in">
+    ${text ? `<textarea id="vo-text" rows="3" placeholder="深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力">${esc(said)}</textarea>` : `<div class="vo-said">${esc(said) || '<span class="muted">…</span>'}</div>`}
+    <div class="vo-st">${status}</div>
+    ${buttons ? `<div class="btns">${buttons}</div>` : ''}</div>`;
+  if (text) setTimeout(() => vo?.querySelector('textarea')?.focus(), 50);
+}
+const voSaid = (s) => { const el = vo?.querySelector('.vo-said'); if (el) el.textContent = s || '…'; };
+function voHide() { vo?.remove(); vo = null; }
+
+function textMode(msg = '') {
+  voShow({ text: true, said: ed?.said || '', status: msg || '用键盘上的 🎤 说，或者直接打字', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="parse">好了</button>' });
+}
+
+export function startTalk() {
+  if (!ed || talk) return;
+  if (!voice.canListen()) { textMode(); return; }
+  voShow({ status: '正在听…　松开结束' });
+  const rec = voice.listen({ onText: (f, m) => voSaid(f + m) });
+  talk = { rec, t0: Date.now(), mode: 'hold' };
+  const t0 = Date.now();
+  rec.done.then((said) => finish(said, t0), (e) => { talk = null; if (/not-allowed|service/.test(e.code || '')) textMode(e.message); else voError(e.message); });
+  addEventListener('pointerup', release, { once: true });
+  addEventListener('pointercancel', release, { once: true });
+}
+
+function release() {
+  if (!talk || talk.mode !== 'hold') return;
+  if (Date.now() - talk.t0 < 450) { // a quick tap: keep listening until 完成
+    talk.mode = 'tap';
+    voShow({ said: '', status: '正在听…', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="stop">说完了</button>' });
+    return;
+  }
+  talk.rec.stop();
+}
+
+async function finish(said, t0) {
+  talk = null;
+  if (!ed) { voHide(); return; }
+  if (!said && Date.now() - t0 < 1500) { textMode('这里用不了语音识别，可以用键盘上的 🎤 说，或者打字'); return; } // ended at once: not available here
+  if (!said) { voHide(); toast('没听到，再按住说一次'); return; }
+  await parseSaid(said);
+}
+
+async function parseSaid(said) {
+  voShow({ said, status: '<span class="spin-dot"></span> 解析中…' });
+  try {
+    const items = await voice.parse(said, ed.items.map((it) => ({ lift: it.lift, sets: it.sets })));
+    if (!ed) return;
+    ed.said = said;
+    for (const it of items) if (it.def) ed.defs[it.lift] = it.def;
+    ed.items = items.map(({ lift, sets }) => ({ lift, sets }));
+    voHide();
+    draw();
+  } catch (e) {
+    if (ed) ed.said = said;
+    voError(e.message, e.code === 'NO_KEY');
+  }
+}
+
+function voError(msg, noKey = false) {
+  voShow({
+    said: ed?.said || '', status: `<span class="warn">${esc(msg)}</span>`,
+    buttons: noKey
+      ? '<button type="button" class="btn ghost" data-vo="cancel">先手动改</button><button type="button" class="btn pri" data-vo="settings">去设置</button>'
+      : '<button type="button" class="btn ghost" data-vo="cancel">关闭</button><button type="button" class="btn pri" data-vo="type">打字改</button>',
+  });
+}
+
+function onVoClick(e) {
+  const b = e.target.closest('[data-vo]');
+  if (!b) return;
+  const a = b.dataset.vo;
+  if (a === 'stop') talk?.rec.stop();
+  else if (a === 'cancel') { stopAll(); if (ed) draw(); }
+  else if (a === 'type') textMode();
+  else if (a === 'parse') { const v = vo?.querySelector('textarea')?.value.trim(); if (v) parseSaid(v); else voHide(); }
+  else if (a === 'settings') { stopAll(); closeSheet(); hooks.openSettings?.(); }
+}
+
+function onDown(e) {
+  const b = e.target.closest('[data-ed="talk"]');
+  if (!b) return;
+  e.preventDefault();
+  startTalk();
+}
+
+function stopAll() {
+  if (talk) { talk.rec.abort(); talk = null; }
+  voHide();
+}
