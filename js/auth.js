@@ -10,6 +10,8 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
   'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
   'https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly',
+  // training-log backup; this scope only reaches files the app itself created
+  'https://www.googleapis.com/auth/drive.file',
 ];
 
 export function redirectUri() {
@@ -28,7 +30,6 @@ function b64url(bytes) {
   return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// extraScopes: e.g. Google Drive (for the training-log backup), asked for only when turned on.
 export async function startLogin({ extraScopes = [] } = {}) {
   const { clientId } = getConfig();
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));

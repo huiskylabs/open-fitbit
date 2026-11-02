@@ -7,7 +7,7 @@
 - **睡眠**：一晚的分期图叠夜间心率；一周 / 一月的睡眠条形码；3 个月的日历热力图、作息漂移、每周分期；夜间体征
 - **运动**：每次运动的心率区间；一周的时间网格；一月的日历；3 个月的每周时长、篮球强度、VO2 max、运动时间习惯
 - **训练**：练完不用点开始结束。app 从心率和步数里找出力量训练，猜你练了什么（按上次 + 轮换），打开就能确认；
-  不对就按住说话（“深蹲 100 公斤 5 组 5 个，引体 4 组 8 个，最后一组很吃力”）或手动改。
+  不对就点“说”，用 iPhone 键盘上的 🎤 说一句（“深蹲 100 公斤 5 组 5 个，引体 4 组 8 个，最后一组很吃力”），手机直接读懂，或者手动改。
   还有“下次练什么”、每个动作的进度、部位热力图、训练日历、每周组数
 - **心率**：全天曲线和心率区间；静息心率、HRV 的趋势和你的正常范围；每日心率范围
 
@@ -27,14 +27,14 @@
 密钥都只存在这台 iPhone 上，代码仓库里没有任何密钥，所以仓库公开也没关系：
 
 - Google 的 Client ID / Secret 和登录令牌
-- Anthropic API 密钥（只用来把语音识别出的文字变成组数和重量）
+- （可选）OpenRouter 或 Anthropic 的 API 密钥：只有手机读不懂的那句话才会发给模型
 
 用到的 Google 权限：
 
 - `googlehealth.sleep.readonly`
 - `googlehealth.activity_and_fitness.readonly`
 - `googlehealth.health_metrics_and_measurements.readonly`
-- `drive.file`（只在打开“自动备份到 Google Drive”时才申请；只能看到这个 app 自己建的那一个备份文件）
+- `drive.file`（训练记录备份；只能看到这个 app 自己建的那一个备份文件）
 
 训练记录不会写回 Google Health。
 
@@ -46,11 +46,13 @@
 3. **装到 iPhone**：用 Safari 打开网址 → 分享按钮 → **添加到主屏幕**。
 4. **连接 Fitbit**：从主屏幕打开 app → 右上角设置 → 填 Client ID 和 Client Secret → **保存并连接** → 用你的 Google 账号授权。
    - 如果授权后跳到了 Safari 而不是回到 app：复制 Safari 地址栏里的完整网址，回到 app 的设置里，展开“登录后跳回了 Safari？”，粘贴后点“完成连接”。
-5. **语音记录训练**（可选）：在 [console.anthropic.com](https://console.anthropic.com) 建一个 API 密钥，填到设置 → 语音记录（Claude），点“保存并试一下”。
-   没有密钥也能用：确认卡上点“改”，用加减按钮改组数和重量。
-6. **训练记录备份到 Google Drive**（可选）：先在 Google Cloud 项目的 APIs & Services → Library 里启用 **Google Drive API**，
-   然后在 app 设置里打开“自动备份到我的 Google Drive”，按提示再授权一次。之后每次保存训练都会更新 Drive 里的“我的健康 训练记录备份.json”；
-   换手机时连接后打开同一个开关，会自动恢复。设置里也可以随时导出 JSON 文件。
+5. **语音记录训练**：不用设置。确认卡或训练编辑里点“说”，再点键盘上的 🎤 说一句，边说边能看到 app 听懂了什么，说完点“好了”。
+   主屏幕 app 里 iOS 不让网页直接用语音识别，所以用键盘听写，它就是 iPhone 自带的语音输入。用 Safari 打开网页时可以按住按钮说。
+   常见说法（动作、重量、组数、每组次数、“最后一组很吃力”、“第二组 95”、“没练硬拉”、“再加一组引体”）都在手机上直接读懂。
+   可选：设置 → 语音记录 → 填 OpenRouter（`sk-or-…`）或 Anthropic（`sk-ant-…`）的密钥，选 Haiku（便宜）或 Sonnet。之后手机读不懂的句子会交给模型。
+6. **训练记录备份到 Google Drive**（默认就开着）：在 Google Cloud 项目里启用一次 **Google Drive API**（没启用时 app 顶部会提示，点“去启用”直接到那个页面），
+   再点 app 顶部的“授权”同意一次。之后每次保存训练都会更新 Drive 里的“我的健康 训练记录备份.json”；
+   换手机后连接 Fitbit，会自动从备份恢复。设置里也可以随时导出 JSON 文件。
 7. **保持一直连着**：Google 项目在“测试”状态下登录令牌 7 天过期，到时 app 顶部会提示，点“重新连接”即可（手机上的数据不会丢）。
    想不再过期：Google Cloud → Google Auth Platform → Audience → **Publish app**（不用提交审核），然后在 app 里重新连接一次。
 
@@ -62,7 +64,9 @@
 - `js/data.js` / `js/store.js`：本机缓存、同步、基线
 - `js/scores.js`：睡眠分、恢复分、心率区间
 - `js/training.js`：训练识别、猜测、进度计算
-- `js/trainui.js` / `js/voice.js`：训练编辑和语音（手机语音识别 + Claude 解析）
+- `js/trainui.js`：训练编辑和语音输入
+- `js/sayparse.js`：把说的话变成动作、组数和重量（在手机上，不联网）
+- `js/voice.js`：语音识别（Safari 里），和可选的 AI 解析（OpenRouter / Anthropic）
 - `js/drive.js`：Google Drive 备份
 - `js/auth.js` / `js/api.js`：Google 登录和 Google Health API
 - `js/demo.js`：示例数据
