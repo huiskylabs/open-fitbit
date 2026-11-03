@@ -1,5 +1,5 @@
 // App-shell cache so the app opens instantly and offline. API calls are never cached here.
-const V = 'shell-v9';
+const V = 'shell-v10';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png',
   'js/util.js', 'js/store.js', 'js/auth.js', 'js/api.js', 'js/data.js', 'js/scores.js', 'js/training.js', 'js/demo.js',

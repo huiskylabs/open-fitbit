@@ -1,7 +1,7 @@
 // Training editor (bottom sheet): confirm or correct a detected session, log one by hand, or say it.
 // Saying it: in the home-screen app, tap 说 and use the microphone key on the iPhone keyboard; in
 // Safari, hold the button and talk. The phone turns the words into lifts and sets (sayparse.js); an
-// AI model is asked only about words the phone couldn't place, and only when a key is set.
+// AI model (OpenRouter or Anthropic key in settings) reads every sentence when a key is set.
 // 取消 (or tapping outside) asks first when something was changed.
 import * as tr from './training.js';
 import * as voice from './voice.js';
@@ -24,15 +24,7 @@ const pref = {
 };
 const nameOf = (id) => ed?.defs[id]?.name || tr.lift(id).name;
 const isBw = (id) => (ed?.defs[id] ? !!ed.defs[id].bodyweight : tr.lift(id).bodyweight);
-const stepOf = (id) => (ed?.defs[id] ? 2.5 : tr.lift(id).step || 2.5);
 const fmtKg = (v) => String(Math.round((+v || 0) * 100) / 100);
-const labelOf = (id, sets) => {
-  if (!ed?.defs[id]) return tr.setsLabel(id, sets);
-  const reps = sets.map((s) => s.reps), same = reps.every((r) => r === reps[0]);
-  const top = Math.max(0, ...sets.map((s) => (isBw(id) ? s.add || 0 : s.kg || 0)));
-  const rt = same ? `${sets.length}×${reps[0]}` : reps.join('/');
-  return isBw(id) ? (top ? `${rt} · +${top} kg` : same ? rt : `${rt} 次`) : `${rt} · ${top} kg`;
-};
 
 // init: { id?, pendingId?, date, start?, end?, items, source?, exId?, peaks?, hr?, said? }
 export function open(init, { title, talk = false } = {}) {
@@ -48,39 +40,49 @@ function when() {
   return `${ed.date === ymd(today()) ? '' : md(d) + ' '}${hm(new Date(ed.start))}–${hm(new Date(ed.end))}`;
 }
 
+// Read view first: each lift is one line, "卧推  8 · 8 · 8 · 6  70 kg". Tap a line to change its numbers.
 function setRow(it, i, s, k) {
   const bw = isBw(it.lift);
   const f = bw ? 'add' : 'kg';
   const v = bw ? s.add || 0 : s.kg || 0;
-  return `<div class="ed-set${s.hard ? ' is-hard' : ''}">
+  return `<div class="ed-row">
     <span class="n">${k + 1}</span>
-    <span class="stp"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="-1" aria-label="少一次">−</button><input data-f="reps" data-i="${i}" data-k="${k}" inputmode="numeric" value="${s.reps}" aria-label="第 ${k + 1} 组次数"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="1" aria-label="多一次">+</button></span>
-    <span class="stp w"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="-1" aria-label="减重量">−</button><input data-f="${f}" data-i="${i}" data-k="${k}" inputmode="decimal" value="${fmtKg(v)}" aria-label="第 ${k + 1} 组${bw ? '负重' : '重量'}（kg）"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="1" aria-label="加重量">+</button></span>
+    <label><input data-f="reps" data-i="${i}" data-k="${k}" inputmode="numeric" value="${s.reps}" aria-label="第 ${k + 1} 组次数"><span>次</span></label>
+    <label><input data-f="${f}" data-i="${i}" data-k="${k}" inputmode="decimal" value="${fmtKg(v)}" aria-label="第 ${k + 1} 组${bw ? '负重' : '重量'}"><span>${bw ? '+kg' : 'kg'}</span></label>
     <button type="button" class="hard${s.hard ? ' on' : ''}" data-ed="hard" data-i="${i}" data-k="${k}" aria-pressed="${!!s.hard}">吃力</button>
     <button type="button" class="x" data-ed="del-set" data-i="${i}" data-k="${k}" aria-label="删除这组">×</button>
-  </div>${s.note ? `<div class="ed-note">“${esc(s.note)}”</div>` : ''}`;
+  </div>`;
 }
 
-// column names once per lift, so the numbers in the rows need no units
-const setHead = (it) => `<div class="ed-set head"><span class="n"></span><span>次数</span><span>${isBw(it.lift) ? '负重 kg' : '重量 kg'}</span><span></span><span></span></div>`;
+function sumLine(it) {
+  const bw = isBw(it.lift);
+  const reps = it.sets.map((s) => s.reps).join(' · ');
+  const kg = [...new Set(it.sets.map((s) => fmtKg(bw ? s.add || 0 : s.kg || 0)))];
+  const unit = bw ? (kg.some((x) => +x) ? `次 · +${kg.join('/')} kg` : '次') : `${kg.join('/')} kg`;
+  const hard = it.sets.map((s, k) => (s.hard && !s.note ? k + 1 : 0)).filter(Boolean); // a set with its own words shows those instead
+  const notes = it.sets.map((s) => s.note).filter(Boolean);
+  const sub = [hard.length ? (hard.length === 1 && hard[0] === it.sets.length ? '最后一组吃力' : `第 ${hard.join('、')} 组吃力`) : '', ...notes.map((n) => `“${n}”`)].filter(Boolean).join('　');
+  return `<span class="sets">${reps}<small>${esc(unit)}</small></span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}`;
+}
 
 function html() {
   const lib = tr.allLiftIds().filter((id) => !ed.items.some((it) => it.lift === id));
   return `<div class="ed">
-    <div class="sheet-nav"><button type="button" class="nav-btn" data-ed="cancel">取消</button><h3>${esc(ed.title)}${ed.start ? `<small>${when()}</small>` : ''}</h3><button type="button" class="nav-btn b" data-ed="save">保存</button></div>
+    <div class="sheet-nav"><button type="button" class="nav-btn" data-ed="cancel">取消</button><h3>${esc(ed.title)}${ed.start ? `<small>${when()}</small>` : ''}</h3><span class="nav-btn"></span></div>
     ${ed.start ? '<div class="ed-hr"></div>' : `<label class="field row"><span>日期</span><input type="date" id="ed-date" value="${ed.date}" max="${ymd(today())}"></label>`}
     ${ed.said ? `<div class="ed-said">“${esc(ed.said)}”</div>` : ''}
-    ${ed.items.length ? '' : '<div class="empty sm">比如：深蹲 100 公斤 5 组 5 个</div>'}
-    ${ed.items.map((it, i) => `<div class="ed-item" data-i="${i}">
-      <div class="ed-ih"><b>${esc(nameOf(it.lift))}</b><small>${esc(labelOf(it.lift, it.sets))}</small></div>
-      ${setHead(it)}
+    ${ed.items.length ? '' : '<div class="empty sm">点麦克风说，比如：卧推 70 公斤 8 8 8 6，引体 4 组 11 个</div>'}
+    <div class="ed-list">${ed.items.map((it, i) => ed.openI === i ? `<div class="ed-item open" data-i="${i}">
+      <div class="ed-ih"><b>${esc(nameOf(it.lift))}</b><button type="button" class="link" data-ed="close">好了</button></div>
       ${it.sets.map((s, k) => setRow(it, i, s, k)).join('')}
-      <div class="ed-foot"><button type="button" class="btn small" data-ed="add-set" data-i="${i}">加一组</button><button type="button" class="link danger" data-ed="del-item" data-i="${i}">删除这个动作</button></div>
-    </div>`).join('')}
-    <div class="ed-add"><span class="k">加动作</span>${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}">${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>
-    <div class="ed-bar"><button type="button" class="btn pri talk" data-ed="talk">${talkLabel()}</button></div>
+      <div class="ed-foot"><button type="button" class="link" data-ed="add-set" data-i="${i}">加一组</button><button type="button" class="link danger" data-ed="del-item" data-i="${i}">删除这个动作</button></div>
+    </div>` : `<button type="button" class="ed-item" data-ed="open" data-i="${i}"><b>${esc(nameOf(it.lift))}</b>${sumLine(it)}</button>`).join('')}</div>
+    ${ed.adding ? `<div class="ed-add">${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}">${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>`
+      : '<button type="button" class="link ed-addl" data-ed="adding">+ 加一个动作</button>'}
+    <div class="ed-bar cbtns"><button type="button" class="btn pri" data-ed="save">${ed.id ? '保存' : '确认'}</button><button type="button" class="btn mic talk" data-ed="talk" aria-label="${talkLabel()}">${MIC}</button></div>
   </div>`;
 }
+const MIC = '<svg viewBox="0 0 24 24"><rect x="8.5" y="2.5" width="7" height="12.5" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11.5a7 7 0 0 0 14 0M12 18.5v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
 function draw() {
   let el = sheetEl();
@@ -120,10 +122,7 @@ function onInput(e) {
   const v = Math.max(0, parseFloat(String(t.value).replace(',', '.')) || 0);
   if (t.dataset.f === 'reps') s.reps = Math.round(v); else s[t.dataset.f] = v;
   ed.fromGuess = false;
-  // update the label only, so the next field keeps focus and the keyboard stays up
-  const i = +t.dataset.i, it = ed.items[i];
-  const box = sheetEl()?.querySelector(`.ed-item[data-i="${i}"]`);
-  if (box) box.querySelector('.ed-ih small').textContent = labelOf(it.lift, it.sets);
+  // no redraw while typing, so the next field keeps focus and the keyboard stays up
 }
 
 function defaultSets(id) {
@@ -138,23 +137,21 @@ async function onClick(e) {
   const i = +b.dataset.i, k = +b.dataset.k;
   const it = ed.items[i];
   switch (b.dataset.ed) {
-    case 'step': {
-      const s = it.sets[k], f = b.dataset.f, d = +b.dataset.d;
-      if (f === 'reps') s.reps = Math.max(1, s.reps + d);
-      else s[f] = Math.max(0, Math.round(((+s[f] || 0) + d * stepOf(it.lift)) * 100) / 100);
-      break;
-    }
+    case 'open': ed.openI = i; draw(); return;
+    case 'close': ed.openI = null; draw(); return;
+    case 'adding': ed.adding = true; draw(); return;
     case 'hard': it.sets[k].hard = !it.sets[k].hard; if (!it.sets[k].hard) delete it.sets[k].note; break;
     case 'del-set': it.sets.splice(k, 1); if (!it.sets.length) { delItem(i); return; } break;
     case 'add-set': { const l = it.sets.at(-1) || defaultSets(it.lift)[0]; const { note, hard, ...s } = l; it.sets.push({ ...s }); break; }
     case 'del-item': delItem(i); return;
-    case 'add-lift': ed.items.push({ lift: b.dataset.id, sets: defaultSets(b.dataset.id) }); break;
+    case 'add-lift': ed.items.push({ lift: b.dataset.id, sets: defaultSets(b.dataset.id) }); ed.openI = ed.items.length - 1; ed.adding = false; break;
     case 'new-lift': {
       const name = (prompt('动作名称（比如：哑铃划船）') || '').trim();
       if (!name) return;
       const id = 'c_' + Date.now().toString(36);
       ed.defs[id] = { name: name.slice(0, 20), parts: {}, bodyweight: /引体|俯卧撑|双杠|臂屈伸|卷腹|平板|悬垂|深蹲跳/.test(name) };
       ed.items.push({ lift: id, sets: ed.defs[id].bodyweight ? [{ reps: 10, kg: 0 }] : [{ reps: 10, kg: 20 }] });
+      ed.openI = ed.items.length - 1; ed.adding = false;
       break;
     }
     case 'save': await save(); return;
@@ -169,7 +166,7 @@ async function onClick(e) {
 // a whole lift goes with an undo (the × next to a set only takes that set)
 function delItem(i) {
   const [gone] = ed.items.splice(i, 1);
-  ed.fromGuess = false;
+  ed.fromGuess = false; ed.openI = null;
   draw();
   const me = ed;
   toast(`已删除${nameOf(gone.lift)}`, { action: '撤销', onAction: () => { if (ed !== me) return; ed.items.splice(Math.min(i, ed.items.length), 0, gone); draw(); } });
@@ -291,8 +288,9 @@ async function parseSaid(said) {
   if (!ed) return;
   const loc = parseLocal(said, current(), { fromGuess: !!ed.fromGuess });
   let r = loc, warn = '';
-  if (!loc.sure && voice.hasKey()) {
-    voShow({ said, status: '<span class="spin-dot"></span> 交给 AI 看一下…' });
+  // with an AI key, the AI reads every sentence (the phone's own reading is only the fallback)
+  if (voice.hasKey()) {
+    voShow({ said, status: '<span class="spin-dot"></span> 正在整理…' });
     try { r = { items: await voice.parseAI(said, current()), unknown: [], sure: true, touched: true, noKg: [] }; } catch (e) { warn = e.message; }
     if (!ed) return;
   }
@@ -300,11 +298,12 @@ async function parseSaid(said) {
   if (!r.touched) { voError(warn || (r.unknown.length ? `没听懂：${r.unknown.join('、')}` : '没听懂，换个说法试试')); return; }
   for (const it of r.items) if (it.def) ed.defs[it.lift] = it.def;
   ed.items = r.items.map(({ lift, sets }) => ({ lift, sets }));
-  ed.fromGuess = false;
+  ed.fromGuess = false; ed.openI = null;
   voHide();
   draw();
   const noKg = (r.noKg || []).map((id) => nameOf(id));
   if (warn) toast(`AI 没用上（${warn}），先按手机听懂的填了`, { ms: 5000 });
+  else if (!voice.hasKey() && !r.sure) toast('在设置里填上 OpenRouter 密钥，说的话会认得更准', { ms: 5000 });
   else if (!r.sure && r.unknown.length) toast(`这些没听懂：${r.unknown.join('、')}`, { ms: 5000 });
   else if (noKg.length) toast(`${noKg.join('、')}还没说重量`);
 }
