@@ -44,7 +44,7 @@ export async function sync(model, { force = false } = {}) {
     soft(source.getDailyZones(since, end)),
     soft(source.getDailyHr(since, end)),
     soft(source.getPersonalRanges(since, end)),
-    now - (m.devicesAt || 0) > 6 * 3600e3 ? soft(source.getDevices()) : Promise.resolve(null),
+    soft(source.getDevices()), // every time: its last-sync time says whether a just-finished workout can be here yet
     ...api.DAILY_KEYS.map((k) => soft(source.getDaily(k, since))),
   ]);
   const s0 = +since;
@@ -137,7 +137,7 @@ const FRESH_MS = 5 * 60e3;
 
 async function cached(kind, start, end, windowSec, fetcher) {
   const key = `${prefix}${kind}:${ymd(new Date(start))}:${windowSec}:${start}:${end}`;
-  const settled = end < Date.now() - 3600e3; // past windows never change
+  const settled = end < Date.now() - 6 * 3600e3; // past windows stop changing once the watch has uploaded them
   const hit = mem.get(key) || (await store.get(key));
   if (hit && (hit.settled || Date.now() - hit.t < FRESH_MS)) { mem.set(key, hit); return hit.v; }
   const v = await fetcher(start, Math.min(end, Date.now()), windowSec);

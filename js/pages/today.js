@@ -95,10 +95,21 @@ function below(v, M, sel) {
   return out;
 }
 
+// The app only sees what the watch has uploaded (watch → Fitbit app on the phone → Google).
+// When that was a while ago, say so, so a just-finished workout that isn't here yet makes sense.
+function watchNote(v) {
+  const last = Math.max(0, ...(v.m.devices || []).map((d) => d.lastSync || 0));
+  if (!last) return '';
+  const min = Math.round((Date.now() - last) / 60e3);
+  if (min < 20) return '';
+  const t = min < 60 ? `${min} 分钟前` : min < 1440 ? `${Math.round(min / 60)} 小时前` : hm(new Date(last));
+  return `<p class="note">手表 ${t}同步过，之后的还没上来。打开 Fitbit app 让手表同步一下，再回来就有了。</p>`;
+}
+
 export function render(ctx) {
   const { v } = ctx;
   const M = model(v);
-  let out = pendingCards(ctx);
+  let out = watchNote(v) + pendingCards(ctx);
   if (M.items.length || v.recovery[ymd(today())]) {
     out += `<section class="card dialcard" id="today-dial"><div class="dialwrap">${dialSvg(v, M, null, null)}</div>${chips(M, null)}</section>`;
     out += `<div id="today-below">${below(v, M, null)}</div>`;
