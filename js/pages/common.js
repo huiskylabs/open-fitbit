@@ -200,4 +200,31 @@ export function recoveryWhy(v, date) {
   return { why: '各项都在正常范围' };
 }
 
+// 7:03 — a duration read like a watch, used inside dials and on chips
+export const clockDur = (min) => { min = Math.round(min || 0); return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`; };
+// the short name on a dial or a calendar day: 力量 / 篮球 / 步行…
+export const shortKind = (w) => (w.kind === 'strength' ? '力量' : kindLabel(w));
+// lifts as "卧推  8 · 8 · 8 · 6  70 kg"
+export function lifts2(items) {
+  return `<div class="lifts2">${items.map((it) => {
+    const lf = tr.lift(it.lift), reps = it.sets.map((s) => s.reps).join(' · ');
+    const kg = [...new Set(it.sets.map((s) => (lf.bodyweight ? s.add || 0 : s.kg || 0)))];
+    const unit = lf.bodyweight ? (kg.some(Boolean) ? `次 · +${kg.join('/')} kg` : '次') : `${kg.join('/')} kg`;
+    return `<div class="lift2"><b>${esc(lf.name)}</b><span class="sets">${reps}<small>${unit}</small></span><span class="n"></span></div>`;
+  }).join('')}</div>`;
+}
+// one workout in a list: a colored disc with its name, when, the key numbers, minutes
+const KCOL = { strength: 'var(--strength)', basketball: 'var(--ball)', other: 'var(--other)' };
+export function recRow(w, { withDay = false } = {}) {
+  const d = new Date(w.start), mins = Math.round(w.activeSec / 60);
+  let detail = w.avgHr ? `平均 ${w.avgHr} bpm` : '';
+  if (w.kind === 'strength' && w.sessionId) {
+    const s = tr.get().sessions.find((x) => x.id === w.sessionId);
+    if (s) detail = s.items.map((it) => `${tr.lift(it.lift).name} ${tr.setsLabel(it.lift, it.sets)}`).join('　');
+  }
+  const when = withDay ? `${dayName(ymd(d))} ${hm(d)}` : `${hm(d)}–${hm(new Date(w.end))}`;
+  const act = w.sessionId && w.src === 'app' ? 'session' : 'workout', id = w.sessionId && w.src === 'app' ? w.sessionId : w.id;
+  return `<button class="rec" data-act="${act}" data-id="${esc(id)}"><span class="dot" style="background:${KCOL[w.kind] || KCOL.other}">${esc(shortKind(w))}</span><span><span class="t" style="display:block">${when}</span><span class="s" style="display:block">${esc(detail)}</span></span><span class="r">${mins}<small>分钟</small></span></button>`;
+}
+
 export { esc, hmDur };

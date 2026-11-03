@@ -1,4 +1,4 @@
-// 我的健康 v2 — app shell: five tabs, one shared 日 / 周 / 月 / 3个月 switch, sync, training detection, settings.
+// 我的健康 v3 — app shell: four tabs, one shared 日 / 周 / 月 / 3个月 switch, sync, training detection, settings.
 import * as auth from './js/auth.js';
 import * as api from './js/api.js';
 import * as data from './js/data.js';
@@ -15,11 +15,10 @@ import { MAX_OFFSET, period, workouts, nightLabel } from './js/pages/common.js';
 import * as pToday from './js/pages/today.js';
 import * as pSleep from './js/pages/sleep.js';
 import * as pWork from './js/pages/workouts.js';
-import * as pTrain from './js/pages/trainpage.js';
 import * as pHeart from './js/pages/heart.js';
 
-const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, train: pTrain, heart: pHeart };
-const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', train: '力量', heart: '心率' };
+const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, heart: pHeart };
+const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', heart: '心率' };
 const SIZE = { d: 1, w: 7, m: 30, q: 91 };
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -91,7 +90,6 @@ function render({ keepScroll = false } = {}) {
   banner();
   const view = $('#view');
   if (!S.v) { view.innerHTML = `<div class="empty">${S.syncing ? '正在读取数据…' : ''}</div>`; return; }
-  document.documentElement.dataset.tab = S.tab;
   const ctx = { v: S.v, per, focus: S.focus, demo: S.demo };
   const y = scrollY;
   try { view.innerHTML = PAGES[S.tab].render(ctx); } catch (e) { console.error(e); view.innerHTML = `<div class="empty">页面出错：${esc(e.message)}</div>`; }
@@ -291,20 +289,16 @@ function openSettings() {
     <section class="set-g"><h4>力量训练</h4>
       <label class="sw"><span>下次训练自动加重量<small>上次每组都做满、不吃力时</small></span><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}></label>
     </section>
-    <section class="set-g"><h4>外观</h4>
-      <label class="field row"><span>风格</span><select id="style">${[['', '默认'], ['night', '夜航'], ['paper', '纸本'], ['field', '色场']].map(([k, n]) => `<option value="${k}"${(document.documentElement.dataset.style || '') === k ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
-    </section>
     <section class="set-g"><h4>数据</h4>
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
       ${S.demo ? '' : '<button class="btn" data-act="resync">重新下载最近 120 天</button>'}
     </section>
-    <div class="note center">v2.3</div>`, { cls: 'settings' });
+    <div class="note center">v3</div>`, { cls: 'settings' });
 }
 
 async function settingsChange(e) {
   const t = e.target;
   if (t.id === 'hints') { tr.get().settings.hints = t.checked; await tr.save(); render({ keepScroll: true }); }
-  if (t.id === 'style') { try { localStorage.setItem('style', t.value); } catch {} location.reload(); }
   if (t.id === 'ai-model') { voice.setModel(t.value); ui.toast(`之后用 ${voice.MODELS[voice.getModel()].label}`); }
 }
 
@@ -330,10 +324,11 @@ async function onAction(el) {
   const a = el.dataset.act, id = el.dataset.id;
   switch (a) {
     case 'goto': go({ tab: el.dataset.tab, range: el.dataset.range || S.range }); break;
+    case 'goto-day': go({ tab: 'workouts', range: 'd', offset: dayDiff(today(), parseYmd(el.dataset.date)) }); break;
     case 'night': go({ tab: 'sleep', range: 'd', offset: dayDiff(today(), parseYmd(el.dataset.date)) }); break;
     case 'session': {
       const s = tr.get().sessions.find((x) => x.id === id);
-      if (s) go({ tab: 'train', range: 'd', offset: dayDiff(today(), parseYmd(s.date)) });
+      if (s) go({ tab: 'workouts', range: 'd', offset: dayDiff(today(), parseYmd(s.date)) });
       break;
     }
     case 'workout': {

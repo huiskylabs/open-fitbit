@@ -7,26 +7,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="我的健康">
-  <meta name="theme-color" content="#f2f1ee" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f3f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c0c0b" media="(prefers-color-scheme: dark)">
   <meta name="referrer" content="no-referrer">
   <title>我的健康</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
-  <script>
-    // optional look: ?style=night|paper|field (remembered), ?style= to go back to the default
-    (function () {
-      var all = ['night', 'paper', 'field'], q = new URLSearchParams(location.search).get('style'), s = '';
-      try { if (q != null) localStorage.setItem('style', all.indexOf(q) >= 0 ? q : ''); s = localStorage.getItem('style') || ''; } catch (e) { s = q || ''; }
-      if (all.indexOf(s) < 0) return;
-      document.documentElement.dataset.style = s;
-      document.write('<link rel="stylesheet" href="themes/' + s + '.css">');
-      var c = { night: '#08090b', paper: '#f3eee4', field: '#f1f0ec' }[s];
-      document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = c; m.removeAttribute('media'); });
-    })();
-  </script>
 </head>
 <body>
   <header class="top">
@@ -54,7 +42,6 @@
     <button data-tab="today" role="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>今天</button>
     <button data-tab="sleep" role="tab"><svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>睡眠</button>
     <button data-tab="workouts" role="tab"><svg viewBox="0 0 24 24"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>运动</button>
-    <button data-tab="train" role="tab"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>力量</button>
     <button data-tab="heart" role="tab"><svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>心率</button>
   </nav>
   <script type="module" src="app.js"></script>

@@ -1,4 +1,5 @@
-/* 我的健康 v2.3 — one design system.
+/* 我的健康 v3 (日晷) — one design system. Warm paper, ink, numbers in a display serif; data on dials (js/dial.js).
+   Earlier notes still hold:
    The interface itself is black, white and grey; color is only for data, one family per subject:
    sleep blue (deep / light / REM; awake is grey because it isn't sleep), heart red, strength green,
    basketball purple, other grey. Orange means one thing: worse than your usual.
@@ -6,13 +7,14 @@
    Anything tappable is at least 44 px tall to the finger, and dims while pressed. */
 :root {
   color-scheme: light;
-  --bg: #f2f1ee; --card: #fcfcfb; --card-2: #f0efec; --line: #e2e1dc; --grid: #e7e6e0; --track: #ebeae5;
-  --text: #0b0b0b; --text-2: #52514e; --muted: #6e6c66;
-  --deep: #3c3bb8; --light: #2f7fe8; --rem: #5cc3f0; --awake: #c9c8c0; --sleep: var(--light);
-  --strength: #12a37f; --strength-soft: #d3efe5; --ball: #a855d6; --ball-ink: #8a3cba; --other: #a9a8a1;
-  --hr: #e34948; --z1: #f6cfcb; --z2: #ef9f97; --z3: #e5675f; --z4: #b9302b;
-  --worse: #eb6834; --worse-ink: #b5420e; --danger: #c8312a;
-  --band: rgba(11, 11, 11, .07); --band-strong: rgba(11, 11, 11, .13); --dot: #c3c2b7; --ref: var(--text-2);
+  --bg: #f3f1ea; --card: #fbfaf5; --card-2: #ebe8df; --line: #dcd8cc; --grid: #e4e0d5; --track: #e6e2d8;
+  --text: #16150f; --text-2: #5d5a50; --muted: #8a867a;
+  --deep: #3c3bb8; --light: #2f7fe8; --rem: #5cc3f0; --awake: #d4cfc2; --awake-strong: #8f8a7c; --sleep: var(--light);
+  --strength: #1d8a5f; --strength-2: #6fbf98; --strength-soft: #d3ebdf; --ball: #7a45c9; --ball-ink: #6a35b8; --other: #a6a08f;
+  --hr: #d8452f; --z1: #f6d3cb; --z2: #eca393; --z3: #df6b55; --z4: #b0301d;
+  --worse: #e0702a; --worse-ink: #b5530f; --danger: #c8312a;
+  --band: rgba(22, 21, 15, .07); --band-strong: rgba(22, 21, 15, .13); --dot: #c3bfb2; --ref: var(--text-2);
+  --serif: "Instrument Serif", "Songti SC", Georgia, serif;
   --press: .55;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -20,13 +22,13 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #0e0e0d; --card: #1a1a19; --card-2: #262624; --line: #31312e; --grid: #2b2b29; --track: #2c2c2a;
-    --text: #f4f3ef; --text-2: #bdbcb5; --muted: #8f8d87;
-    --deep: #6260e8; --light: #2f8cf5; --rem: #5ccbf5; --awake: #5a5955;
-    --strength: #19b88e; --strength-soft: #173f35; --ball: #b77ae8; --ball-ink: #c79af0; --other: #6f6e68;
-    --hr: #f06767; --z1: #4f2726; --z2: #85393a; --z3: #d65a5a; --z4: #ff8f8a;
-    --worse: #f07a3e; --worse-ink: #f39363; --danger: #ff6f63;
-    --band: rgba(255, 255, 255, .09); --band-strong: rgba(255, 255, 255, .17); --dot: #55554f;
+    --bg: #0c0c0b; --card: #151513; --card-2: #22221f; --line: #2b2a27; --grid: #252522; --track: #262623;
+    --text: #f1eee6; --text-2: #b3afa4; --muted: #858177;
+    --deep: #6260e8; --light: #2f8cf5; --rem: #5ccbf5; --awake: #3a3935; --awake-strong: #8a877e;
+    --strength: #2fc787; --strength-2: #1d6b4c; --strength-soft: #143a2b; --ball: #a678ff; --ball-ink: #c09bff; --other: #6f6b60;
+    --hr: #ff6150; --z1: #4f2726; --z2: #85393a; --z3: #d65a5a; --z4: #ff8f8a;
+    --worse: #ff8a3d; --worse-ink: #ffa165; --danger: #ff6f63;
+    --band: rgba(255, 255, 255, .08); --band-strong: rgba(255, 255, 255, .15); --dot: #55554f;
   }
 }
 
@@ -368,3 +370,146 @@ details[open] > summary::after { margin-top: 4px; transform: rotate(-135deg); }
   .top-row, .period { max-width: 528px; margin-left: auto; margin-right: auto; }
   .sheet, .vo-in { max-width: 560px; margin: 0 auto; }
 }
+
+/* ================= v3 日晷 ================= */
+@font-face { font-family: "Instrument Serif"; font-display: swap; src: url(fonts/instrument-serif-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Instrument Serif"; font-style: italic; font-display: swap; src: url(fonts/instrument-serif-latin-400-italic.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+
+/* header: the page name, and the date in italic serif */
+#title { font-size: 30px; letter-spacing: .02em; }
+#plabel { font: italic 21px var(--serif); color: var(--text-2); }
+.top { border-bottom: 0; }
+.seg { padding: 0; gap: 14px; border-radius: 0; background: none; }
+.seg button { min-width: 0; padding: 0 2px; border-radius: 0; color: var(--muted); }
+.seg button[aria-selected="true"] { background: none; box-shadow: none; color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: 8px; text-decoration-thickness: 2px; }
+.tabs { border-top: 1px solid var(--text); }
+
+/* sections on paper instead of boxes */
+.card { padding: 16px 0 18px; border-radius: 0; background: none; border-top: 1px solid var(--line); margin-bottom: 0; }
+main > .card:first-child, .card.flat, .card.dialcard { border-top: 0; }
+.card.flat { padding: 6px 0 14px; }
+.card.confirm { box-shadow: none; border-top: 2px solid var(--text); }
+.wk { border-radius: 0; background: none; border-top: 1px solid var(--line); margin: 0; padding: 14px 0; }
+.banner { background: var(--card); }
+main > .btns .btn, .card.flat .btn { background: var(--card); }
+
+/* numbers in the display serif */
+.num .v, .score .v, .vital .vv, .card h2 .big, .vrows .vb b, .dnum .v, .rec .r { font-family: var(--serif); font-weight: 400; letter-spacing: 0; }
+.num .v { font-size: 44px; line-height: 1.02; }
+.num.sm .v { font-size: 34px; }
+.vital .vv { font-size: 30px; }
+.card h2 .big { font-size: 30px; }
+.vrows .vb b { font-size: 22px; }
+svg text { font-family: var(--serif); font-size: 13px; }
+svg text.lbl { font-family: inherit; }
+
+/* the dials */
+.dialwrap { margin: 0 -16px; }
+.dialwrap svg.dial { margin: 0 auto; max-width: 100%; height: auto; }
+svg.dial text, svg.mini text { font-family: var(--serif); fill: var(--muted); font-size: 15px; }
+svg.dial .tn { fill: var(--text); }
+svg.dial .tk { stroke: var(--muted); stroke-width: 1; }
+svg.dial .tkl { stroke: var(--text); stroke-width: 1.5; }
+svg.dial .rim { fill: none; stroke: var(--line); }
+svg.dial .track { fill: color-mix(in srgb, var(--text) 5%, transparent); }
+svg.dial .step { stroke: var(--text-2); stroke-width: .6; opacity: .55; }
+svg.dial .refc { fill: none; stroke: var(--muted); stroke-width: .6; stroke-dasharray: 1.5 3; }
+svg.dial .refa { fill: var(--muted); opacity: .5; }
+svg.dial .refn { font-size: 12px; fill: var(--text-2); }
+svg.dial .restc { fill: none; stroke: var(--hr); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
+svg.dial .restn { font: 12px -apple-system, "PingFang SC", sans-serif; fill: var(--hr); }
+svg.dial .hrl { fill: none; stroke: var(--hr); stroke-width: 1.3; stroke-linejoin: round; }
+svg.dial .hrl.thin { stroke-width: 1.1; }
+svg.dial .hrl.dim { opacity: .3; }
+svg.dial .hrl.strong { stroke-width: 2; }
+svg.dial .hrdot { fill: var(--hr); }
+svg.dial .pkn { font-size: 13px; fill: var(--hr); }
+svg.dial .halo, svg.mini .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+svg.dial .hand { stroke: var(--text); stroke-width: 1.5; }
+svg.dial .hand.thin { stroke-width: 1; }
+svg.dial .handdot { fill: var(--text); }
+svg.dial .lead { stroke: var(--muted); stroke-width: .8; }
+svg.dial .lb { font: 600 12px -apple-system, "PingFang SC", sans-serif; fill: var(--text); }
+svg.dial .ls { font: 12px -apple-system, "PingFang SC", sans-serif; fill: var(--text-2); }
+svg.dial .dl.dim { opacity: .35; }
+svg.dial .ck { font: 12px -apple-system, "PingFang SC", sans-serif; fill: var(--text-2); }
+svg.dial .cv { fill: var(--text); }
+svg.dial .cu { font: 12px -apple-system, "PingFang SC", sans-serif; fill: var(--text-2); }
+svg.dial .zn { font: 10px -apple-system, "PingFang SC", sans-serif; fill: var(--hr); }
+svg.dial .reps { font-size: 18px; fill: #fff; }
+svg.mini { display: block; margin: 0 auto; }
+svg.mini .rim { fill: none; stroke: var(--line); }
+svg.mini .mtrack { fill: none; stroke: var(--line); stroke-width: 5; }
+svg.mini .split { stroke: var(--bg); stroke-width: 1.2; }
+svg.mini .todayc { fill: none; stroke: var(--text); stroke-width: 1.5; }
+svg.mini .mname { font: 600 12px -apple-system, "PingFang SC", sans-serif; fill: #fff; }
+svg.mini .mdate { font-size: 11px; fill: #fff; opacity: .85; }
+svg.mini .mempty { font-size: 14px; fill: var(--muted); }
+
+/* chips under the today dial: tap one to light it up on the dial */
+.chips { display: flex; justify-content: space-between; gap: 6px; margin: 0 0 4px; overflow-x: auto; scrollbar-width: none; }
+.chip2 { flex: none; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 11px; border-radius: 18px; border: 1px solid var(--line); background: none; font-size: 13px; color: var(--text-2); }
+.chip2 i { width: 8px; height: 8px; border-radius: 50%; }
+.chip2 b { font: 400 18px var(--serif); color: var(--text); }
+.chip2[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+.chip2[aria-pressed="true"] b { color: var(--bg); }
+
+/* three numbers in a row, ruled */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--text); }
+.trio > div { padding: 12px 0 2px; min-width: 0; }
+.trio > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
+.trio .k { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+.trio .k i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.trio .v { margin-top: 4px; font: 36px/1.05 var(--serif); white-space: nowrap; }
+.trio .v small { margin: 0 2px; font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--text-2); }
+.trio .n { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.trio .n.warn, .trio .v.warn { color: var(--worse-ink); }
+
+/* stage bars against your usual */
+.sbars { display: grid; gap: 10px; }
+.sbar { display: grid; grid-template-columns: 44px 1fr 100px; align-items: center; gap: 10px; font-size: 13px; }
+.sbar .k { color: var(--text-2); }
+.sbar .tr { position: relative; height: 8px; border-radius: 4px; background: var(--track); }
+.sbar .tr i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.sbar .tr u { position: absolute; top: -3px; bottom: -3px; border-left: 1.5px dashed var(--text-2); }
+.sbar .vv { text-align: right; font: 18px var(--serif); white-space: nowrap; }
+.sbar .vv small { margin-left: 4px; font: 11px -apple-system, "PingFang SC", sans-serif; color: var(--muted); }
+
+/* a row of seven small dials */
+.week7 { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.week7 .d { cursor: pointer; }
+.week7 .v { margin-top: 4px; font: 17px var(--serif); }
+.week7 .n { font-size: 11px; color: var(--muted); }
+.week7 .d.on .n { color: var(--text); font-weight: 600; }
+
+/* 运动: the month of dials */
+.dcal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px 2px; }
+.dcal .h { text-align: center; font-size: 11px; color: var(--muted); }
+.dcal .c { text-align: center; cursor: pointer; }
+.dcal .c .m { height: 15px; margin-top: 1px; font: 13px var(--serif); color: var(--text-2); }
+.kchips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--text); }
+.kchips > div { padding: 12px 0 0; }
+.kchips > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
+.kchips .kk { display: inline-block; padding: 2px 8px; border-radius: 10px; color: #fff; font-size: 12px; font-weight: 600; }
+.kchips .v { margin-top: 4px; font: 36px/1.05 var(--serif); }
+.kchips .v small { margin-left: 2px; font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--text-2); }
+.kchips .n { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.rec { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 12px 0; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; }
+.rec .dot { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: #fff; font-size: 13px; font-weight: 700; }
+.rec .t { font-weight: 600; }
+.rec .s { margin-top: 1px; overflow: hidden; font-size: 12px; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
+.rec .r { font-size: 26px; text-align: right; white-space: nowrap; }
+.rec .r small { margin-left: 2px; font: 11px -apple-system, "PingFang SC", sans-serif; color: var(--muted); }
+
+/* the confirm card: one 确认, a microphone, and "不是训练" small */
+.cbtns { display: grid; grid-template-columns: 1fr 48px; gap: 8px; margin-top: 14px; }
+.cbtns .btn { margin: 0; min-height: 48px; border-radius: 24px; }
+.cbtns .mic { display: grid; place-items: center; width: 48px; padding: 0; border: 1px solid var(--line); background: none; }
+.cbtns .mic svg { width: 22px; height: 22px; }
+.lifts2 .lift2 { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; align-items: baseline; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.lifts2 .lift2 b { font-weight: 600; }
+.lifts2 .sets { font: 24px var(--serif); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lifts2 .sets small { margin-left: 6px; font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--text-2); letter-spacing: 0; }
+.lifts2 .n { font-size: 12px; color: var(--muted); text-align: right; }
+.dnote { margin: -4px 0 12px; font-size: 12px; color: var(--muted); text-align: center; }
+.cbtns .mic::before { content: none; }

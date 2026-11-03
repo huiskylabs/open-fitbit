@@ -1,7 +1,8 @@
 // 睡眠：睡够没有、规律吗。日 = 一晚的分期；周 = 每晚几点睡、睡多久；月 = 规律；3 个月 = 每周的变化
-import { hm, md, parseYmd, mean, nightMin, clockLabel, hmDur, isWeekend, quantile, eveOf } from '../util.js';
+import { hm, md, parseYmd, mean, nightMin, clockLabel, hmDur, isWeekend, quantile, eveOf, ymd, addDays, wk, esc } from '../util.js';
+import * as Dl from '../dial.js';
 import * as C from '../charts.js';
-import { card, nums, num, durHtml, empty, nightRows, facts, sleepWhy, usualStages, nightLabel, METRIC, unitHtml, rangeText, sp, offText } from './common.js';
+import { card, nums, num, durHtml, empty, nightRows, facts, sleepWhy, usualStages, nightLabel, METRIC, unitHtml, rangeText, sp, offText, clockDur } from './common.js';
 import { isWorse, WORSE } from '../scores.js';
 import { hrSeries } from '../data.js';
 
@@ -95,28 +96,40 @@ function vitalsCard(ctx) {
   return card(`夜间体征：${t.warn ? `<span class="warn">${t.text}</span>` : t.text}`, `<div class="vitals">${cells}</div>`, { sub: per.range === 'q' ? '每周平均' : `${per.n} 晚平均` });
 }
 
+const nightCenter = (v, n, date) => ({ k: '睡着', v: clockDur(n.asleep), n: v.sleepScores[date] ? `睡眠分 ${v.sleepScores[date].total}` : '' });
+
 function day(ctx) {
   const { v, per } = ctx;
   const date = per.to;
   const n = v.nights[date];
   if (!n) return empty(`${nightLabel(date)}没有睡眠记录`);
   const sw = sleepWhy(v, date);
-  const durRow = sw?.rows.find((r) => r[0] === '时长');
-  let out = card('', nums(num('睡着', durHtml(n.asleep), '', '', durRow?.[2] || ''), sw ? num('睡眠分', sw.total, '', 'sm') : '')
-    + (sw ? facts(sw.rows.filter((r) => r !== durRow)) : ''), { cls: 'flat' });
-  const short = (n.short || []).length;
-  out += card('分期和心率', `<div id="hypno" data-date="${date}">${C.hypnogram(n)}</div>`, { sub: n.hasStages ? (short ? `短暂醒来 ${short} 次` : '') : '这晚只有总时长' });
+  let out = `<section class="card dialcard"><div class="dialwrap" id="nightdial" data-date="${date}">${Dl.nightDial(n, { center: nightCenter(v, n, date) })}</div></section>`;
+  // three numbers: lowest heart rate (filled in once the night's heart rate is read), HRV, time to fall asleep
+  const d = v.daily[date] || {}, bh = v.base.hrv?.[date];
+  const hrvBad = isWorse('hrv', d.hrv, bh);
+  out += `<section class="card flat"><div class="trio">
+    <div><div class="k"><i style="background:var(--hr)"></i>最低心率</div><div class="v" id="lowhr">${d.nremHr != null ? `${Math.round(d.nremHr)}<small>bpm</small>` : '—'}</div><div class="n" id="lowhr-n">${d.nremHr != null ? '睡眠心率' : ''}</div></div>
+    ${d.hrv != null ? `<div><div class="k"><i style="background:var(--light)"></i>HRV</div><div class="v${hrvBad ? ' warn' : ''}">${Math.round(d.hrv)}<small>ms</small></div><div class="n${hrvBad ? ' warn' : ''}">${rangeText('hrv', bh)}</div></div>` : ''}
+    <div><div class="k"><i style="background:var(--text)"></i>入睡用了</div><div class="v">${n.toFallAsleep ?? 0}<small>分钟</small></div><div class="n">${hm(new Date(n.start))} 上床</div></div>
+  </div></section>`;
+  if (sw) out += card(esc(sw.why), facts(sw.rows));
   if (n.hasStages) {
     const u = usualStages(v, date);
-    const rows = C.STAGES.map((s) => [s.name, hmDur(n.byStage[s.key] || 0), u ? `平时 ${hmDur(u[s.key])}` : '']);
-    let title = '分期';
+    const mx = Math.max(...C.STAGES.map((s) => Math.max(n.byStage[s.key] || 0, u?.[s.key] || 0))) * 1.08;
+    const col = { DEEP: 'var(--deep)', LIGHT: 'var(--light)', REM: 'var(--rem)', AWAKE: 'var(--awake-strong)' };
+    const rows = C.STAGES.map((s) => { const m = n.byStage[s.key] || 0, uu = u?.[s.key]; return `<div class="sbar"><span class="k">${s.name}</span><span class="tr"><i style="width:${(m / mx) * 100}%;background:${col[s.key]}"></i>${uu != null ? `<u style="left:${(uu / mx) * 100}%"></u>` : ''}</span><span class="vv">${clockDur(m)}${uu != null ? `<small>平时 ${clockDur(uu)}</small>` : ''}</span></div>`; }).join('');
+    let title = '每个阶段';
     if (u) {
       const diffs = C.STAGES.filter((s) => s.key !== 'AWAKE').map((s) => [s, (n.byStage[s.key] || 0) - u[s.key]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-      const [s, d] = diffs[0];
-      title = Math.abs(d) < 15 ? '分期和平时差不多' : `${sp(s.name)}比平时${d > 0 ? '多' : '少'} ${hmDur(d)}`;
+      const [s0, dd] = diffs[0];
+      title = Math.abs(dd) < 15 ? '每个阶段都和平时差不多' : `${sp(s0.name)}比平时${dd > 0 ? '多' : '少'} ${hmDur(dd)}`;
     }
-    out += card(title, facts(rows));
+    out += card(title, `<div class="sbars">${rows}</div>`, { sub: u ? '虚线是平时' : '' });
   }
+  // the seven nights up to this one, as small watch faces
+  const week = Array.from({ length: 7 }, (_, i) => ymd(addDays(parseYmd(date), i - 6)));
+  out += card('这一周', `<div class="week7">${week.map((dt) => { const x = v.nights[dt]; const ev = eveOf(dt); return `<div class="d${dt === date ? ' on' : ''}" data-act="night" data-date="${dt}">${Dl.miniNight(x)}<div class="v">${x ? clockDur(x.asleep) : '—'}</div><div class="n">${dt === date ? nightLabel(dt) : '周' + wk(ev)}</div></div>`; }).join('')}</div>`);
   const cells = VITALS.map((k) => {
     const val = v.daily[date]?.[k];
     if (val == null) return '';
@@ -134,11 +147,19 @@ function day(ctx) {
 
 export async function after(ctx, root) {
   if (ctx.per.range !== 'd') return;
-  const el = root.querySelector('#hypno');
+  const el = root.querySelector('#nightdial');
   const n = el && ctx.v.nights[el.dataset.date];
   if (!n) return;
   try {
     const pts = await hrSeries(n.start - 10 * 60e3, n.end + 10 * 60e3, 120);
-    if (el.isConnected) el.innerHTML = C.hypnogram(n, pts);
+    if (!el.isConnected) return;
+    el.innerHTML = Dl.nightDial(n, { hr: pts, center: nightCenter(ctx.v, n, el.dataset.date) });
+    const inN = pts.filter((p) => p.t >= n.start && p.t <= n.end && p.v != null);
+    if (inN.length) {
+      const m = inN.reduce((a, p) => (p.v < a.v ? p : a));
+      const lv = root.querySelector('#lowhr'), ln = root.querySelector('#lowhr-n');
+      if (lv) lv.innerHTML = `${Math.round(m.v)}<small>bpm</small>`;
+      if (ln) ln.textContent = `${hm(new Date(m.t))}，红点`;
+    }
   } catch (e) { console.warn(e); }
 }
