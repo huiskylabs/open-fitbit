@@ -1,11 +1,12 @@
-// 运动：动得够不够。日 = 每次运动和中高强度分钟；周 = 每天的中高强度和运动列表；
+// 运动（力量也在这里）：动得够不够、力量有没有进步。日 = 每次运动和中高强度分钟；周 = 每天的中高强度和运动列表；
 // 月 = 日历；3 个月 = 每周时长和有氧能力
 import { hm, md, wk, parseYmd, ymd, addDays, sum, fmtInt, hmDur, esc, today, mean } from '../util.js';
 import * as C from '../charts.js';
-import { card, nums, num, durHtml, empty, xLabels, workouts, inDays, kindLabel, kindsLine, zonesMin, activeZoneMin, zoneAvg } from './common.js';
+import { card, nums, num, durHtml, empty, xLabels, workouts, inDays, kindLabel, kindsLine, zonesMin, activeZoneMin, zoneAvg, recRow, shortKind } from './common.js';
+import * as Dl from '../dial.js';
 import { hrSeries } from '../data.js';
 import { zoneOf } from '../scores.js';
-import { pendingCards, after as trainAfter } from './trainpage.js';
+import { pendingCards, after as trainAfter, sessionCard, nextCard, progressCard, partsCard, weeklyCard } from './trainpage.js';
 import * as tr from '../training.js';
 
 const LEVEL = { POOR: '较差', FAIR: '一般', AVERAGE: '中等', GOOD: '好', VERY_GOOD: '很好', EXCELLENT: '优秀' };
@@ -37,7 +38,11 @@ export function render(ctx) {
     let out = list.length ? totals(v, per, list) : '';
     out += pend;
     if (!list.length && !pend) out += empty('这天没有运动');
-    out += list.map((w) => wCard(w)).join('');
+    if (per.offset === 0) out += nextCard(ctx);
+    const sess = tr.sessions().filter((x) => x.date === per.to);
+    out += sess.map((x) => sessionCard(x)).join('');
+    const rest = list.filter((w) => !(w.kind === 'strength' && sess.some((x) => x.id === w.sessionId)));
+    if (rest.length) out += `<section class="card"><h2><span>${sess.length ? '其他运动' : '这天的运动'}</span></h2>${rest.map((w) => recRow(w)).join('')}</section>`;
     const withHr = list.filter((w) => w.avgHr);
     const detail = withHr.find((w) => w.id === ctx.focus) || withHr.sort((a, b) => (b.kind === 'basketball') - (a.kind === 'basketball') || b.activeSec - a.activeSec)[0];
     if (detail) out += `<div id="wk-detail" data-id="${esc(detail.id)}">${detailShell(detail)}</div>`;
@@ -46,14 +51,17 @@ export function render(ctx) {
       const avg = zoneAvg(v, per.to);
       out += card(`中高强度 ${Math.round(activeZoneMin(z))} 分钟`, C.zoneRows(zonesMin(z), { order: [4, 3, 2] }), { sub: avg ? `平时全天 ${Math.round(avg)} 分钟` : '' });
     }
+    out += `<div class="btns center"><button class="link" data-act="sess-new" data-date="${per.to}">记一次没被认出的力量训练</button></div>`;
     return out;
   }
-  if (!list.length) return empty('这段时间没有运动');
-  let out = totals(v, per, list);
+  if (!list.length) return pendingCards(ctx, { from: per.from, to: per.to }) + empty('这段时间没有运动');
+  let out = pendingCards(ctx, { from: per.from, to: per.to });
+  out += per.range === 'q' ? totals(v, per, list) : kindTotals(list);
   if (per.range === 'm') {
-    const byDate = {};
-    for (const w of list) (byDate[ymd(new Date(w.start))] ||= []).push({ kind: w.kind, min: w.activeSec / 60, id: w.id });
-    out += card(`30 天里运动了 ${Object.keys(byDate).length} 天`, C.workoutCal({ start: per.start, end: per.end, byDate, todayKey: ymd(today()) }));
+    out += card(`30 天里运动了 ${new Set(list.map((w) => ymd(new Date(w.start)))).size} 天`, dialCal(per, list));
+    out += card('最近', [...list].reverse().slice(0, 6).map((w) => recRow(w, { withDay: true })).join(''));
+    out += progressCard(ctx) + partsCard(ctx);
+    return out;
   }
   if (per.range !== 'q') {
     const zd = per.days.map((date) => ({ date, z: v.daily[date]?.zoneSec ? zonesMin(v.daily[date].zoneSec) : null }));
@@ -61,7 +69,7 @@ export function render(ctx) {
       const avg = zoneAvg(v, per.from), perDay = mean(zd.filter((d) => d.z).map((d) => d.z.moderate + d.z.vigorous + d.z.peak));
       out += card(`中高强度：平均每天 ${Math.round(perDay)} 分钟`, C.zoneBars(zd, { avg, xLabels: (s) => xl(s.map((p) => ({ date: p.date }))) }), { sub: avg ? `平时 ${Math.round(avg)} 分钟` : '' });
     }
-    if (per.range === 'w') out += [...list].reverse().map((w) => wCard(w, true)).join('');
+    if (per.range === 'w') out += card('这 7 天', [...list].reverse().map((w) => recRow(w, { withDay: true })).join(''));
     return out;
   }
   // 3 months: 13 blocks of 7 days, the last one ending today
@@ -82,7 +90,34 @@ export function render(ctx) {
       ? card(`有氧能力：${last.levelName}`, C.vo2(vo), { sub: `VO2 max ${last.v.toFixed(1)}${change ? `，${change}` : ''}` })
       : card(`有氧能力 ${last.v.toFixed(1)}`, C.vo2(vo), { sub: change });
   }
+  out += progressCard(ctx) + weeklyCard(ctx);
   return out;
+}
+
+// 力量 12 次 · 篮球 8 次 · 步行 4 次, each with its total time
+function kindTotals(list) {
+  const by = new Map();
+  for (const w of list) { const k = shortKind(w); const x = by.get(k) || { k, kind: w.kind, n: 0, min: 0 }; x.n++; x.min += w.activeSec / 60; by.set(k, x); }
+  const top = [...by.values()].sort((a, b) => b.n - a.n).slice(0, 3);
+  const col = { strength: 'var(--strength)', basketball: 'var(--ball)', other: 'var(--other)' };
+  return `<section class="card flat"><div class="kchips">${top.map((x) => `<div><span class="kk" style="background:${col[x.kind] || col.other}">${esc(x.k)}</span><div class="v">${x.n}<small>次</small></div><div class="n">共 ${hmDur(x.min)}</div></div>`).join('')}</div></section>`;
+}
+
+// the month as small dials: each day filled with its main workout's color and name
+function dialCal(per, list) {
+  const byDate = {};
+  for (const w of list) (byDate[ymd(new Date(w.start))] ||= []).push({ start: w.start, end: w.end, kind: w.kind, short: shortKind(w) });
+  let h = '一二三四五六日'.split('').map((x) => `<div class="h">${x}</div>`).join('');
+  const pad = (per.start.getDay() + 6) % 7;
+  for (let i = 0; i < pad; i++) h += '<div></div>';
+  const tk = ymd(today());
+  for (const date of per.days) {
+    const d = parseYmd(date), ws = byDate[date] || [];
+    const label = d.getDate() === 1 ? `${d.getMonth() + 1}月` : String(d.getDate());
+    const min = Math.round(ws.reduce((a, w) => a + (w.end - w.start) / 60e3, 0));
+    h += `<div class="c" data-act="goto-day" data-date="${date}">${Dl.miniWorkoutDay({ dayStart: +d, ws, label, today: date === tk })}<div class="m">${min ? `${min}′` : ''}</div></div>`;
+  }
+  return `<div class="dcal">${h}</div>`;
 }
 
 // one workout: name (and its day, in a list of several days), when and how long; on the right its

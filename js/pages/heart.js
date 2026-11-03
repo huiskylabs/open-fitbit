@@ -1,8 +1,10 @@
 // 心率：恢复得怎么样。日 = 静息心率、HRV 和全天曲线；周 / 月 / 3 个月 = 静息心率和 HRV 在不在你的正常范围
 import { parseYmd, addDays, ymd, mean, hm } from '../util.js';
 import * as C from '../charts.js';
+import * as Dl from '../dial.js';
 import { card, nums, num, empty, series, xLabels, workouts, kindLabel, METRIC, rangeText, daysOff } from './common.js';
 import { hrSeries } from '../data.js';
+import * as tr from '../training.js';
 import { isWorse, WORSE } from '../scores.js';
 
 const KEYS = ['rhr', 'hrv'];
@@ -63,7 +65,7 @@ function day(ctx) {
   const cell = (k, i) => num(METRIC[k].name, `<span class="${isWorse(k, d[k], b(k)) ? 'warn' : ''}">${fmtK(k, d[k])}</span>`, METRIC[k].unit, i ? 'sm' : '', rangeText(k, b(k)));
   const keys = KEYS.filter((k) => d[k] != null);
   let out = keys.length ? card('', nums(...keys.map(cell)), { cls: 'flat' }) : '';
-  out += card('全天心率', `<div id="hrday" data-date="${date}"><div class="empty sm">读取中…</div></div>`);
+  out += card('全天心率', `<div id="hrday" class="dialcard" data-date="${date}"><div class="empty sm">读取中…</div></div>`);
   return out;
 }
 
@@ -80,7 +82,7 @@ export async function after(ctx, root) {
     if (!pts.length) { el.innerHTML = '<div class="empty sm">这天没有心率数据</div>'; return; }
     const sleeps = v.m.sleeps.filter((s) => s.end > start && s.start < end);
     const ws = workouts(v).filter((w) => w.end > start && w.start < end);
-    el.innerHTML = C.dayCurve(pts, { start, end, sleeps, workouts: ws, rest: v.daily[date]?.rhr, now: Date.now() });
+    el.innerHTML = `<div class="dialwrap">${Dl.hrDayDial({ dayStart: start, pts, rest: v.daily[date]?.rhr, sleeps, workouts: [...ws, ...(tr.get().pending || []).filter((p) => p.end > start && p.start < end && !ws.some((w) => w.start < p.end && p.start < w.end)).map((p) => ({ ...p, kind: 'strength' }))].map((w) => ({ start: w.start, end: w.end, kind: w.kind })), now: Date.now() })}</div>`;
     // "最高 172 bpm · 19:05 篮球": the highest point, and what you were doing then
     const top = pts.reduce((a, p) => ((p.hi ?? p.v) > (a.hi ?? a.v) ? p : a));
     const w = ws.find((x) => top.t >= x.start - 5 * 60e3 && top.t <= x.end + 5 * 60e3);

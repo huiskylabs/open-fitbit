@@ -1,0 +1,66 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日晷 运动 月</title><link rel="stylesheet" href="base.css"><link rel="stylesheet" href="dialstyle.css">
+<style>
+.sum { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 16px; border-top: 1px solid var(--ink); }
+.sum > div { padding: 12px 0 0; }
+.sum > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
+.sum .kk { display: inline-block; padding: 2px 8px; border-radius: 10px; color: #fff; font-size: 12px; font-weight: 600; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px 2px; margin-top: 18px; }
+.cal .h { text-align: center; font-size: 11px; color: var(--mut); }
+.cal .c { text-align: center; }
+.cal .c svg { margin: 0 auto; display: block; }
+.cal .c .m { font: 13px "Instrument Serif", serif; color: var(--ink2); height: 15px; margin-top: 1px; }
+.list { margin-top: 22px; }
+.it { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.it .dot { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 700; }
+.it .t { font-weight: 600; }
+.it .s { font-size: 12px; color: var(--ink2); margin-top: 1px; }
+.it .r { font: 26px "Instrument Serif", serif; text-align: right; }
+.it .r small { font: 11px -apple-system, "PingFang SC", sans-serif; color: var(--mut); margin-left: 2px; }
+</style></head><body>
+<div class="hd"><h1>运动 · 近 30 天</h1><span class="r">10月6日–11月4日</span></div>
+<div class="seg"><span>日</span><span>周</span><span class="on">月</span><span>3个月</span></div>
+<div class="sum" id="sum"></div>
+<div class="cal" id="cal"></div>
+<h2>最近</h2>
+<div class="list" id="list" style="margin-top:0"></div>
+<script type="module">
+import * as D from './data.js';
+import { makeDial, COLORS } from './dialkit.js';
+import { tabs } from './tabs.js';
+const NAME = { strength: '力量', ball: '篮球', walk: '散步' };
+const SOLID = { strength: 'var(--str)', ball: 'var(--ball)', walk: 'var(--walk)' };
+const cnt = { strength: 0, ball: 0, walk: 0 }, mins = { strength: 0, ball: 0, walk: 0 };
+for (const d of D.days) for (const e of d.ev) { cnt[e.kind]++; mins[e.kind] += (e.e - e.s) / 6e4; }
+document.getElementById('sum').innerHTML = ['strength', 'ball', 'walk'].map((k) => `<div><span class="kk" style="background:${SOLID[k]}">${NAME[k]}</span><div class="v">${cnt[k]}<small>次</small></div><div class="n">共 ${Math.floor(mins[k] / 60)} 小时 ${Math.round(mins[k] % 60)} 分钟</div></div>`).join('');
+// each day: the main workout fills the dial with its color and name; the ring shows when in the day
+const S = 50, c = S / 2;
+let h = '一二三四五六日'.split('').map((x) => `<div class="h">${x}</div>`).join('');
+const first = D.days[0].date, pad = (first.getDay() + 6) % 7;
+for (let i = 0; i < pad; i++) h += '<div></div>';
+D.days.forEach((d, i) => {
+  const K = makeDial({ cx: c, cy: c, mode: 'day' });
+  const main = [...d.ev].sort((a, b) => (b.kind !== 'walk') - (a.kind !== 'walk') || (b.e - b.s) - (a.e - a.s))[0];
+  const today = i === D.days.length - 1, dn = d.date.getDate();
+  let g = `<circle cx="${c}" cy="${c}" r="${c - 1.5}" fill="none" stroke="var(--line)" stroke-width="5"/>`;
+  const both = d.ev.some((e) => e.kind === 'strength') && d.ev.some((e) => e.kind === 'ball');
+  const r = c - 7;
+  if (both) g += `<path d="M${c - r},${c}A${r},${r} 0 0 1 ${c + r},${c}Z" fill="var(--str)"/><path d="M${c - r},${c}A${r},${r} 0 0 0 ${c + r},${c}Z" fill="var(--ball)"/><line x1="${c - r}" x2="${c + r}" y1="${c}" y2="${c}" stroke="var(--bg)" stroke-width="1.2"/>`;
+  else if (main) g += `<circle cx="${c}" cy="${c}" r="${r}" fill="${SOLID[main.kind]}"${main.kind === 'walk' ? ' opacity=".55"' : ''}/>`;
+  for (const e of d.ev) g += `<path d="${K.arc(e.s - 12e5, e.e + 12e5, c - 4.5, c + 1)}" fill="${SOLID[e.kind]}"/>`;
+  if (today) g += `<circle cx="${c}" cy="${c}" r="${c + 1}" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`;
+  if (both) g += `<text x="${c}" y="${c - 4}" text-anchor="middle" class="cnb" style="fill:#fff;font-size:10px">力量</text><text x="${c}" y="${c + 12}" text-anchor="middle" class="cnb" style="fill:#fff;font-size:10px">篮球</text>`;
+  else g += main ? `<text x="${c}" y="${c - 1}" text-anchor="middle" class="cnb" style="fill:#fff;font-size:12px">${NAME[main.kind]}</text><text x="${c}" y="${c + 12}" text-anchor="middle" style="fill:#fff;font-size:11px;opacity:.85">${dn === 1 ? '11月1' : dn}</text>`
+    : `<text x="${c}" y="${c + 5}" text-anchor="middle" style="font-size:14px;fill:var(--mut)">${dn === 1 ? '11月' : dn}</text>`;
+  const tot = Math.round(d.ev.reduce((a, e) => a + (e.e - e.s) / 6e4, 0));
+  h += `<div class="c"><svg viewBox="-2 -2 ${S + 4} ${S + 4}" width="${S}" height="${S}">${g}</svg><div class="m">${tot ? tot + '′' : d.sick ? '<span style="color:var(--worse);font:11px -apple-system,sans-serif">感冒</span>' : ''}</div></div>`;
+});
+document.getElementById('cal').innerHTML = h;
+const it = (k, t, s, v, u) => `<div class="it"><div class="dot" style="background:${SOLID[k]}">${NAME[k]}</div><div><div class="t">${t}</div><div class="s">${s}</div></div><div class="r">${v}<small>${u}</small></div></div>`;
+document.getElementById('list').innerHTML =
+  it('ball', '今天 19:05', '最高 163 bpm · 中高强度 58 分钟', 76, '分钟') +
+  it('walk', '今天 12:34', '3,410 步', 32, '分钟') +
+  it('strength', '今天 07:11', '卧推 8/8/8/6 · 70 kg　引体向上 11/11/10/9', 52, '分钟') +
+  it('strength', '周一 07:08', '深蹲 5/5/5/5 · 112.5 kg　引体向上 10/10/10/9', 55, '分钟');
+document.body.insertAdjacentHTML('beforeend', tabs('运动'));
+</script></body></html>

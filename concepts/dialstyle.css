@@ -1,0 +1,53 @@
+:root { --bg: #f3f1ea; --card: #fbfaf5; --ink: #16150f; --ink2: #5d5a50; --mut: #9a968a; --line: #dcd8cc;
+  --deep: #3c3bb8; --light: #2f7fe8; --rem: #5cc3f0; --awake: #d4cfc2; --hr: #d8452f; --str: #1d8a5f; --str2: #6fbf98; --ball: #7a45c9; --walk: #a6a08f; --worse: #e0702a; --awake-strong: #8f8a7c; }
+:root[data-theme="dark"] { --bg: #0c0c0b; --card: #151513; --ink: #f1eee6; --ink2: #b3afa4; --mut: #77746b; --line: #2a2926;
+  --deep: #6260e8; --light: #2f8cf5; --rem: #5ccbf5; --awake: #3a3935; --hr: #ff6150; --str: #2fc787; --str2: #1d6b4c; --ball: #a678ff; --walk: #6f6b60; --worse: #ff8a3d; --awake-strong: #8a877e; }
+body { background: var(--bg); color: var(--ink); padding: 54px 16px 110px; }
+.hd { display: flex; justify-content: space-between; align-items: baseline; }
+.hd h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .12em; }
+.hd .r { font: italic 22px "Instrument Serif", serif; color: var(--ink2); }
+svg text { font-family: "Instrument Serif", serif; fill: var(--mut); font-size: 15px; }
+svg .tn { fill: var(--ink); }
+svg .tk { stroke: var(--mut); stroke-width: 1; }
+svg .tkl { stroke: var(--ink); stroke-width: 1.5; }
+svg .cn { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 12px; fill: var(--ink2); }
+svg .cnb { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 12px; font-weight: 600; fill: var(--ink); }
+svg .big { fill: var(--ink); }
+.chips { display: flex; justify-content: space-between; gap: 6px; overflow: hidden; margin: 4px 0 0; }
+.chip { flex: none; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border-radius: 17px; border: 1px solid var(--line); font-size: 13px; color: var(--ink2); }
+.chip i { width: 8px; height: 8px; border-radius: 50%; }
+.chip b { font: 18px "Instrument Serif", serif; color: var(--ink); font-weight: 400; }
+.chip.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.chip.on b { color: var(--bg); }
+.row { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; border-top: 1px solid var(--ink); }
+.row > div { padding: 12px 0 0; }
+.row > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
+.k { font-size: 12px; color: var(--ink2); display: flex; align-items: center; gap: 6px; }
+.k i { width: 8px; height: 8px; border-radius: 50%; }
+.v { font: 38px/1.05 "Instrument Serif", serif; margin-top: 4px; }
+.v small { font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--ink2); margin: 0 2px; }
+.n { font-size: 12px; color: var(--mut); margin-top: 2px; }
+.n.worse { color: var(--worse); }
+h2 { margin: 28px 0 8px; font-size: 13px; letter-spacing: .14em; color: var(--ink2); font-weight: 600; }
+.lift { display: grid; grid-template-columns: 76px 1fr auto; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+.lift b { font-weight: 600; }
+.sets { font: 24px "Instrument Serif", serif; letter-spacing: .04em; }
+.sets small { font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--ink2); margin-left: 6px; letter-spacing: 0; }
+.lift .n { text-align: right; }
+.bars { display: grid; gap: 9px; }
+.bar { display: grid; grid-template-columns: 44px 1fr 96px; align-items: center; gap: 10px; font-size: 13px; }
+.bar .k2 { color: var(--ink2); }
+.bar .tr { position: relative; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.bar .tr i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.bar .tr u { position: absolute; top: -3px; bottom: -3px; border-left: 1.5px dashed var(--ink2); }
+.bar .vv { text-align: right; font: 17px "Instrument Serif", serif; }
+.bar .vv small { font: 11px -apple-system, "PingFang SC", sans-serif; color: var(--mut); margin-left: 4px; }
+.btns { display: grid; grid-template-columns: 1fr 46px; gap: 8px; margin-top: 14px; }
+.btns span { display: grid; place-items: center; height: 46px; border-radius: 23px; border: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+.btns span:first-child { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tabs { background: color-mix(in srgb, var(--bg) 92%, transparent); border-top: 1px solid var(--ink); color: var(--mut); }
+.tabs span.on { color: var(--ink); font-weight: 600; }
+.seg { display: flex; gap: 18px; margin: 10px 0 0; font-size: 15px; color: var(--mut); }
+.seg .on { color: var(--ink); font-weight: 600; text-decoration: underline; text-underline-offset: 7px; text-decoration-thickness: 2px; }
+svg .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+.btns .mic { width: 46px; padding: 0; }

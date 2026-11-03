@@ -1,0 +1,66 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日晷 今天</title><link rel="stylesheet" href="base.css"><link rel="stylesheet" href="dialstyle.css"></head><body>
+<div class="hd"><h1>周三 · 11月4日</h1><span class="r">21:30</span></div>
+<svg id="dial" viewBox="0 0 393 372" width="393" height="372" style="margin:4px -16px 0"></svg>
+<div class="chips" id="chips"></div>
+<div id="below"></div>
+<script type="module">
+import * as D from './data.js';
+import { makeDial, corona, smooth, COLORS } from './dialkit.js';
+import { tabs, Q } from './tabs.js';
+const sel = Q.get('sel');
+const cx = 196.5, cy = 184, end = D.NOW, start = end - 864e5;
+const K = makeDial({ cx, cy, mode: 'day' });
+const evs = [{ kind: 'sleep', s: D.last.bed, e: D.last.wake, name: '睡', min: Math.round(D.last.asleep) }, ...D.events.map((e) => ({ ...e, min: Math.round((e.e - e.s) / 6e4) }))];
+const NAME = { sleep: '睡', strength: '力量', walk: '散步', ball: '篮球' };
+const dim = (k) => (sel && sel !== k ? ' opacity=".22"' : '');
+let g = '';
+g += `<circle cx="${cx}" cy="${cy}" r="128" fill="none" stroke="var(--line)"/>`;
+g += K.ticks({ r: 128, n: 24, every: 6, label: true, lr: 141, fmt: (i) => i });
+// heart rate, with reference rings at 60 / 100 / 150 bpm labelled along the now hand
+const rHr = (v) => 86 + (Math.max(45, Math.min(175, v)) - 45) / 130 * 38;
+for (const v of [60, 120]) { g += `<circle cx="${cx}" cy="${cy}" r="${rHr(v)}" fill="none" stroke="var(--mut)" stroke-width=".6" stroke-dasharray="1.5 3" opacity=".8"/>`; const [x, y] = K.pt(K.ang(end) + .09, rHr(v)); g += `<text x="${x}" y="${y + 4}" text-anchor="middle" class="halo" style="font-size:12px;fill:var(--ink2)">${v}</text>`; }
+const hr = smooth([...D.last.hr, ...D.dayHr].filter((p) => p.t >= start), 3);
+const selEv = evs.find((e) => e.kind === sel);
+g += `<g${sel ? ' opacity=".35"' : ''}>${corona(K, hr, 86, 124)}</g>`;
+if (selEv) g += corona(K, hr.filter((p) => p.t >= selEv.s && p.t < selEv.e), 86, 124, { id: "cg2", fill: true, width: 1.8 });
+// stages and workouts
+for (const s of D.last.stages) g += `<path d="${K.arc(s.s, s.e, s.type === 'DEEP' ? 66 : 71, 82)}" fill="${COLORS[s.type]}"${dim('sleep')}/>`;
+for (const e of D.events) g += `<path d="${K.arc(e.s, e.e, sel === e.kind ? 62 : 66, sel === e.kind ? 86 : 82)}" fill="${COLORS[e.kind]}"${dim(e.kind)}/>`;
+// now hand
+const [nx, ny] = K.pt(K.ang(end), 131), [nx2, ny2] = K.pt(K.ang(end), 64);
+g += `<line x1="${nx2}" y1="${ny2}" x2="${nx}" y2="${ny}" stroke="var(--ink)" stroke-width="1.5"/><circle cx="${nx}" cy="${ny}" r="3.5" fill="var(--ink)"/>`;
+// labels at the edges, leader from the ring
+const lab = (t, a2, b2, dy, on) => {
+  const a = K.ang(t), right = Math.sin(a) >= 0, [lx, ly] = K.pt(a, 130), y = ly + dy, x = right ? 385 : 8;
+  const ex = right ? Math.max(lx + 10, 300) : Math.min(lx - 10, 93);
+  const o = sel && !on ? ' opacity=".35"' : '';
+  return `<g${o}><polyline points="${lx},${ly} ${ex},${y + 18} ${right ? x : x},${y + 18}" fill="none" stroke="var(--mut)" stroke-width=".8"/><text class="cnb" x="${x}" y="${y - 2}" text-anchor="${right ? 'end' : 'start'}">${a2}</text><text class="cn" x="${x}" y="${y + 13}" text-anchor="${right ? 'end' : 'start'}">${b2}</text></g>`;
+};
+const peak = (e) => Math.round(Math.max(...D.dayHr.filter((p) => p.t >= e.s && p.t < e.e).map((p) => p.v)));
+g += lab((D.last.bed + D.last.wake) / 2, '睡 7 小时 3 分钟', '23:26–06:44', 34, sel === 'sleep');
+g += lab((D.events[0].s + D.events[0].e) / 2, '力量 52 分钟', `最高 ${peak(D.events[0])} bpm`, -20, sel === 'strength');
+g += lab((D.events[1].s + D.events[1].e) / 2, '散步 32 分钟', '3,410 步', -22, sel === 'walk');
+g += lab((D.events[2].s + D.events[2].e) / 2, '篮球 76 分钟', `最高 ${peak(D.events[2])} bpm`, 14, sel === 'ball');
+// centre
+if (selEv?.kind === 'ball') {
+  const avg = Math.round(D.dayHr.filter((p) => p.t >= selEv.s && p.t < selEv.e).reduce((a, p, _, arr) => a + p.v / arr.length, 0));
+  g += `<text class="cn" x="${cx}" y="${cy - 30}" text-anchor="middle">篮球 · 19:05–20:21</text><text class="big" x="${cx}" y="${cy + 22}" text-anchor="middle" style="font-size:64px">76<tspan class="cn" dx="4">分钟</tspan></text><text class="cn" x="${cx}" y="${cy + 42}" text-anchor="middle">平均 ${avg}　最高 ${peak(selEv)}</text>`;
+} else {
+  g += `<text class="cn" x="${cx}" y="${cy - 34}" text-anchor="middle">恢复分</text><text class="big" x="${cx}" y="${cy + 24}" text-anchor="middle" style="font-size:76px">${D.today.recovery}</text><text class="cn" x="${cx}" y="${cy + 44}" text-anchor="middle">睡眠分 ${D.today.sleepScore}</text>`;
+}
+document.getElementById('dial').innerHTML = g;
+const CC = { sleep: 'var(--light)', strength: 'var(--str)', walk: 'var(--walk)', ball: 'var(--ball)' };
+document.getElementById('chips').innerHTML = evs.map((e) => `<span class="chip${sel === e.kind ? ' on' : ''}"><i style="background:${CC[e.kind]}"></i>${NAME[e.kind]} <b>${e.kind === 'sleep' ? '7:03' : e.min}</b></span>`).join('');
+let b = '';
+if (sel === 'ball') {
+  const z = [['峰值', 'var(--hr)', 9, '163 以上'], ['剧烈', 'color-mix(in srgb, var(--hr) 75%, var(--bg))', 31, '136–162'], ['中等', 'color-mix(in srgb, var(--hr) 45%, var(--bg))', 18, '113–135'], ['轻度', 'color-mix(in srgb, var(--hr) 22%, var(--bg))', 12, '99–112']];
+  b += `<h2>心率区间</h2><div class="bars">${z.map(([k, c, m, n]) => `<div class="bar"><span class="k2">${k}</span><span class="tr"><i style="width:${m / 40 * 100}%;background:${c}"></i></span><span class="vv">${m}<small>分钟 · ${n}</small></span></div>`).join('')}</div>`;
+  b += `<div class="row"><div><div class="k">中高强度</div><div class="v">58<small>分钟</small></div><div class="n">平时一场 52</div></div><div><div class="k">消耗</div><div class="v">812<small>千卡</small></div><div class="n">估算</div></div><div><div class="k">恢复到 100 以下</div><div class="v">6<small>分钟</small></div><div class="n">比上周快 2 分钟</div></div></div>`;
+} else {
+  b += `<div class="row"><div><div class="k"><i style="background:var(--hr)"></i>静息心率</div><div class="v">${D.today.rhr}<small>bpm</small></div><div class="n">正常 56–61</div></div><div><div class="k"><i style="background:var(--light)"></i>HRV</div><div class="v">${D.today.hrv}<small>ms</small></div><div class="n">比平时高 6 ms</div></div><div><div class="k"><i style="background:var(--ink)"></i>步数</div><div class="v">11,240</div><div class="n">平时到这会 9,800</div></div></div>`;
+  b += `<h2>早上的训练</h2>` + D.events[0].lifts.map((l) => `<div class="lift"><b>${l.n}</b><span class="sets">${l.sets.join(' · ')}<small>${l.kg ? l.kg + ' kg' : '次'}</small></span><span class="n">${l.note}</span></div>`).join('');
+}
+document.getElementById('below').innerHTML = b;
+document.body.insertAdjacentHTML('beforeend', tabs('今天'));
+</script></body></html>

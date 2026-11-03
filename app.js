@@ -1,4 +1,4 @@
-// 我的健康 v2 — app shell: five tabs, one shared 日 / 周 / 月 / 3个月 switch, sync, training detection, settings.
+// 我的健康 v3 — app shell: four tabs, one shared 日 / 周 / 月 / 3个月 switch, sync, training detection, settings.
 import * as auth from './js/auth.js';
 import * as api from './js/api.js';
 import * as data from './js/data.js';
@@ -15,11 +15,10 @@ import { MAX_OFFSET, period, workouts, nightLabel } from './js/pages/common.js';
 import * as pToday from './js/pages/today.js';
 import * as pSleep from './js/pages/sleep.js';
 import * as pWork from './js/pages/workouts.js';
-import * as pTrain from './js/pages/trainpage.js';
 import * as pHeart from './js/pages/heart.js';
 
-const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, train: pTrain, heart: pHeart };
-const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', train: '力量', heart: '心率' };
+const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, heart: pHeart };
+const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', heart: '心率' };
 const SIZE = { d: 1, w: 7, m: 30, q: 91 };
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -294,7 +293,7 @@ function openSettings() {
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
       ${S.demo ? '' : '<button class="btn" data-act="resync">重新下载最近 120 天</button>'}
     </section>
-    <div class="note center">v2.3</div>`, { cls: 'settings' });
+    <div class="note center">v3</div>`, { cls: 'settings' });
 }
 
 async function settingsChange(e) {
@@ -325,10 +324,11 @@ async function onAction(el) {
   const a = el.dataset.act, id = el.dataset.id;
   switch (a) {
     case 'goto': go({ tab: el.dataset.tab, range: el.dataset.range || S.range }); break;
+    case 'goto-day': go({ tab: 'workouts', range: 'd', offset: dayDiff(today(), parseYmd(el.dataset.date)) }); break;
     case 'night': go({ tab: 'sleep', range: 'd', offset: dayDiff(today(), parseYmd(el.dataset.date)) }); break;
     case 'session': {
       const s = tr.get().sessions.find((x) => x.id === id);
-      if (s) go({ tab: 'train', range: 'd', offset: dayDiff(today(), parseYmd(s.date)) });
+      if (s) go({ tab: 'workouts', range: 'd', offset: dayDiff(today(), parseYmd(s.date)) });
       break;
     }
     case 'workout': {

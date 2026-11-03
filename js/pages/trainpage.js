@@ -2,7 +2,8 @@
 import { hm, md, parseYmd, ymd, addDays, today, esc } from '../util.js';
 import * as tr from '../training.js';
 import * as T from '../tcharts.js';
-import { card, empty, nums, num, workouts } from './common.js';
+import { card, empty, nums, num, workouts, lifts2 } from './common.js';
+import * as Dl from '../dial.js';
 import { hrSeries } from '../data.js';
 import { talkLabel } from '../trainui.js';
 
@@ -25,20 +26,21 @@ function liftRows(items, { blocks = true } = {}) {
 
 const whenOf = (p) => `${p.date === ymd(today()) ? '' : md(parseYmd(p.date)) + ' '}${hm(new Date(p.start))}–${hm(new Date(p.end))}`;
 
-// ---------- the confirm card: a question, three answers, and "not a workout" ----------
+// ---------- the confirm card: the session as one lap of a dial, then 确认 or say it ----------
 // Only the sessions in the day or period being looked at: a past day shouldn't show today's question.
+const MIC = '<svg viewBox="0 0 24 24"><rect x="8.5" y="2.5" width="7" height="12.5" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11.5a7 7 0 0 0 14 0M12 18.5v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 export function pendingCards(ctx, { date, from, to } = {}) {
   const st = tr.get();
   const list = st.pending.filter((p) => (!date || p.date === date) && (!from || p.date >= from) && (!to || p.date <= to));
   if (!list.length) return '';
   return list.sort((a, b) => b.start - a.start).map((p) => {
     const g = tr.guess(p.date);
-    const body = `<div class="pend-hr" data-pending="${esc(p.id)}"></div>
-      ${g ? liftRows(g.items, { blocks: false }) : ''}
-      <div class="btns">
-        ${g ? `<button class="btn pri" data-act="pend-ok" data-id="${esc(p.id)}">是</button>` : ''}
-        <button class="btn talk" data-act="pend-talk" data-id="${esc(p.id)}">${talkLabel()}</button>
-        <button class="btn" data-act="pend-edit" data-id="${esc(p.id)}">手动改</button>
+    const body = `<div class="dialwrap" data-pending="${esc(p.id)}"></div>
+      <p class="dnote">红线是心率，红点是每组的最高值，每一瓣是认出的一组</p>
+      ${g ? lifts2(g.items) : ''}
+      <div class="cbtns">
+        ${g ? `<button class="btn pri" data-act="pend-ok" data-id="${esc(p.id)}">确认</button>` : `<button class="btn pri talk" data-act="pend-talk" data-id="${esc(p.id)}">${talkLabel()}</button>`}
+        ${g ? `<button class="btn mic talk" data-act="pend-talk" data-id="${esc(p.id)}" aria-label="${talkLabel()}">${MIC}</button>` : ''}
       </div>
       <div class="btns end"><button class="link" data-act="pend-no" data-id="${esc(p.id)}">不是训练</button></div>`;
     return card(`${whenOf(p)} ${g ? '练的是这些吗？' : '练了什么？'}`, body, { cls: 'confirm' });
@@ -54,18 +56,18 @@ export function nextCard(ctx, { link = false } = {}) {
   if (!plan) return '';
   const rows = plan.map((p) => `<div><span class="k">${esc(tr.lift(p.lift).name)}</span><b>${esc(tr.setsLabel(p.lift, p.sets))}</b><span class="n">${esc(p.note)}</span></div>`).join('');
   return card(`下次：${plan.map((p) => esc(tr.lift(p.lift).name)).join(' + ')}`, `<div class="facts">${rows}</div>`,
-    link ? { cls: 'tap', act: ' data-act="goto" data-tab="train" data-range="d"' } : {});
+    link ? { cls: 'tap', act: ' data-act="goto" data-tab="workouts" data-range="d"' } : {});
 }
 
 // ---------- one session (day view only: the header already has the date) ----------
 export function sessionCard(s) {
   const when = s.start ? `${hm(new Date(s.start))}–${hm(new Date(s.end))}` : '手动记录';
-  return card(when, `${s.start ? `<div class="sess-hr" data-session="${esc(s.id)}"></div>` : ''}${liftRows(s.items)}
+  return card(when, `${s.start ? `<div class="dialwrap" data-session="${esc(s.id)}"></div>` : ''}${lifts2(s.items)}
     <div class="btns small"><button class="btn" data-act="sess-edit" data-id="${esc(s.id)}">改</button><button class="btn danger" data-act="sess-del" data-id="${esc(s.id)}">删除</button></div>`);
 }
 
 // ---------- long term ----------
-function summary(ctx) {
+export function summary(ctx) {
   const { per } = ctx;
   const ss = tr.sessionsIn(per.from, per.to);
   if (!ss.length) return '';
@@ -75,7 +77,7 @@ function summary(ctx) {
   return card('', nums(num('训练', ss.length, '次', '', pend ? `另有 ${pend} 次待确认` : ''), num('共', sets, '组', 'sm'), num('新纪录', prs, '次', 'sm')), { cls: 'flat' });
 }
 
-function progressCard(ctx) {
+export function progressCard(ctx) {
   const { per } = ctx;
   const rows = tr.allLiftIds().map((id) => ({ id, p: tr.progress(id, per.from, per.to) })).filter((x) => x.p.length).slice(0, 6);
   if (!rows.length) return '';
@@ -87,14 +89,14 @@ function progressCard(ctx) {
   return card('每次最重的一组', body);
 }
 
-function partsCard(ctx) {
+export function partsCard(ctx) {
   const { per } = ctx;
   const parts = tr.setsPerPart(per.from, per.to);
   if (!Object.values(parts).some((v) => v >= 0.5)) return '';
   return card('练了哪些部位', T.partBars(parts, tr.PARTS));
 }
 
-function calendarCard(ctx) {
+export function calendarCard(ctx) {
   const { per, v } = ctx;
   const byDate = {};
   for (const s of tr.sessionsIn(per.from, per.to)) {
@@ -113,7 +115,7 @@ function calendarCard(ctx) {
   return card(`${per.range === 'w' ? '7' : '30'} 天里练了 ${days} 天`, T.trainCal({ start: per.start, end: per.end, byDate, todayKey: ymd(today()), row: per.range === 'w' }));
 }
 
-function weeklyCard(ctx) {
+export function weeklyCard(ctx) {
   const { per } = ctx;
   const n = per.range === 'q' ? 13 : 4;
   const weeks = [];
@@ -152,29 +154,33 @@ export function render(ctx) {
   return out;
 }
 
-// heart-rate strips inside confirm / session cards
+// the session dials inside confirm / session cards
+function drawSession(v, el, { start, end, pts, peaks, items }) {
+  const order = items.flatMap((it, i) => it.sets.map((x) => ({ reps: x.reps, second: i % 2 === 1 })));
+  const { peaks: ps, spans } = tr.setSpans(peaks, items);
+  const groups = spans.map((sp) => ({ name: sp.name, sub: `${ps.filter((p) => p.lift && tr.lift(p.lift).name === sp.name).length} 组`, a: sp.a, b: sp.b }));
+  const z = v.zones;
+  el.innerHTML = Dl.sessionDial({ start, end, pts, peaks: ps, sets: order, groups, zones: z ? { moderate: z.MODERATE, vigorous: z.VIGOROUS } : null });
+}
 export async function after(ctx, root) {
   const { v } = ctx;
   for (const el of root.querySelectorAll('[data-pending]')) {
     const p = tr.get().pending.find((x) => x.id === el.dataset.pending);
     if (!p) continue;
     try {
-      const pts = await hrSeries(p.start - 3 * 60e3, p.end + 3 * 60e3, 60);
+      const pts = await hrSeries(p.start - 60e3, p.end + 60e3, 60);
       const g = tr.guess(p.date);
-      const { peaks, spans } = tr.setSpans(p.peaks || [], g ? g.items : []);
-      if (el.isConnected) el.innerHTML = T.sessionHr(pts, { start: p.start - 3 * 60e3, end: p.end + 3 * 60e3, peaks, spans });
+      if (el.isConnected) drawSession(v, el, { start: p.start, end: p.end, pts, peaks: p.peaks || [], items: g ? g.items : [] });
     } catch { /* no HR */ }
   }
   for (const el of root.querySelectorAll('[data-session]')) {
     const s = tr.get().sessions.find((x) => x.id === el.dataset.session);
     if (!s?.start) continue;
     try {
-      const a = s.start - 3 * 60e3, b = s.end + 3 * 60e3;
-      const pts = await hrSeries(a, b, 60);
+      const pts = await hrSeries(s.start - 60e3, s.end + 60e3, 60);
       const base = v.daily[s.date]?.rhr || 60;
       const raw = s.hr?.peaks?.length ? s.hr.peaks : tr.findPeaks(pts.filter((p) => p.t >= s.start && p.t <= s.end), base);
-      const { peaks, spans } = tr.setSpans(raw, s.items);
-      if (el.isConnected) el.innerHTML = T.sessionHr(pts, { start: a, end: b, peaks, spans });
+      if (el.isConnected) drawSession(v, el, { start: s.start, end: s.end, pts, peaks: raw, items: s.items });
     } catch { /* no HR */ }
   }
 }

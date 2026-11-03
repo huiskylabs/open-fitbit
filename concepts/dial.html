@@ -1,0 +1,96 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日晷</title><link rel="stylesheet" href="base.css">
+<style>
+:root { --bg: #f3f1ea; --ink: #16150f; --ink2: #5d5a50; --mut: #9a968a; --line: #dcd8cc;
+  --deep: #23308f; --light: #4b6fd6; --rem: #93b5f0; --awake: #d4cfc2; --hr: #d8452f; --str: #1d8a5f; --ball: #7a45c9; --walk: #a6a08f; }
+body { background: var(--bg); color: var(--ink); padding: 54px 16px 110px; }
+.hd { display: flex; justify-content: space-between; align-items: baseline; }
+.hd h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .12em; }
+.hd .now { font: italic 22px "Instrument Serif", serif; color: var(--ink2); }
+.dial { margin: 6px -16px 0; }
+.dial text { font-family: "Instrument Serif", serif; fill: var(--mut); font-size: 15px; }
+.dial .cn { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 12px; fill: var(--ink2); }
+.dial .big { font-size: 76px; fill: var(--ink); }
+.dial .lab { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 12px; fill: var(--ink); font-weight: 600; }
+.dial .lab2 { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 11px; fill: var(--ink2); }
+.row { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 10px; border-top: 1px solid var(--ink); }
+.row > div { padding: 12px 0 0; }
+.row > div + div { padding-left: 12px; border-left: 1px solid var(--line); }
+.k { font-size: 12px; color: var(--ink2); display: flex; align-items: center; gap: 6px; }
+.k i { width: 8px; height: 8px; border-radius: 50%; }
+.v { font: 38px/1.05 "Instrument Serif", serif; margin-top: 4px; }
+.v small { font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--ink2); margin: 0 2px; }
+.n { font-size: 12px; color: var(--mut); margin-top: 2px; }
+h2 { margin: 30px 0 10px; font-size: 13px; letter-spacing: .14em; color: var(--ink2); font-weight: 600; }
+.lift { display: grid; grid-template-columns: 76px 1fr auto; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+.lift b { font-weight: 600; }
+.sets { font: 24px "Instrument Serif", serif; letter-spacing: .04em; }
+.sets small { font: 12px -apple-system, "PingFang SC", sans-serif; color: var(--ink2); margin-left: 6px; letter-spacing: 0; }
+.lift .n { text-align: right; }
+.tabs { background: color-mix(in srgb, var(--bg) 92%, transparent); border-top: 1px solid var(--ink); color: var(--mut); }
+.tabs span:first-child { color: var(--ink); font-weight: 600; }
+</style></head><body>
+<div class="hd"><h1>周三 · 11月4日</h1><span class="now">21:30</span></div>
+<svg class="dial" id="dial" viewBox="0 0 393 380" width="393" height="380"></svg>
+<div class="row" id="row"></div>
+<h2>早上的训练</h2><div id="lifts"></div>
+<nav class="tabs"><span><b></b>今天</span><span><b></b>睡眠</span><span><b></b>运动</span><span><b></b>力量</span><span><b></b>心率</span></nav>
+<script type="module">
+import * as D from './data.js';
+const cx = 196.5, cy = 190, end = D.NOW, start = end - 24 * 36e5;
+// clock position: midnight at the bottom, noon at the top, clockwise
+const ang = (t) => { const d = new Date(t); const h = d.getHours() + d.getMinutes() / 60; return (h / 24) * 2 * Math.PI + Math.PI; };
+const pt = (a, r) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+const arc = (t0, t1, r0, r1) => {
+  const a0 = ang(t0), a1 = a0 + ((t1 - t0) / 864e5) * 2 * Math.PI, big = a1 - a0 > Math.PI ? 1 : 0;
+  const [x0, y0] = pt(a0, r1), [x1, y1] = pt(a1, r1), [x2, y2] = pt(a1, r0), [x3, y3] = pt(a0, r0);
+  return `M${x0},${y0}A${r1},${r1} 0 ${big} 1 ${x1},${y1}L${x2},${y2}A${r0},${r0} 0 ${big} 0 ${x3},${y3}Z`;
+};
+let g = '';
+// hour ticks
+for (let h = 0; h < 24; h++) {
+  const a = (h / 24) * 2 * Math.PI + Math.PI, long = h % 6 === 0;
+  const [x0, y0] = pt(a, 128), [x1, y1] = pt(a, long ? 119 : 124);
+  g += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${long ? 'var(--ink)' : 'var(--mut)'}" stroke-width="${long ? 1.5 : 1}"/>`;
+  if (long) { const [tx, ty] = pt(a, 140); g += `<text x="${tx}" y="${ty + 5}" text-anchor="middle" style="fill:var(--ink)">${h}</text>`; }
+}
+g += `<circle cx="${cx}" cy="${cy}" r="128" fill="none" stroke="var(--line)"/>`;
+// heart-rate corona: radius grows with bpm
+const hr = [...D.last.hr, ...D.dayHr].filter((p) => p.t >= start);
+const rOf = (v) => 88 + ((v - 45) / 130) * 32;
+const sm = hr.map((p, i) => { const w = hr.slice(Math.max(0, i - 2), i + 3); return { t: p.t, v: w.reduce((a, x) => a + x.v, 0) / w.length }; });
+let d = ''; sm.forEach((p, i) => { const [x, y] = pt(ang(p.t) + (p.t < D.last.bed && new Date(p.t).getHours() < 12 ? 2 * Math.PI : 0), rOf(p.v)); d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1); });
+const [bx, by] = pt(ang(sm.at(-1).t), 88), [sx, sy] = pt(ang(sm[0].t), 88);
+g += `<defs><radialGradient id="cg" cx="${cx}" cy="${cy}" r="120" gradientUnits="userSpaceOnUse"><stop offset=".74" stop-color="#d8452f" stop-opacity=".02"/><stop offset="1" stop-color="#d8452f" stop-opacity=".28"/></radialGradient></defs>`;
+g += `<path d="${d}L${bx},${by}A88,88 0 1 0 ${sx},${sy}Z" fill="url(#cg)"/>`;
+g += `<path d="${d}" fill="none" stroke="var(--hr)" stroke-width="1.2" stroke-linejoin="round"/>`;
+// sleep stages and workouts on one ring (they never overlap in time)
+const C = { DEEP: 'var(--deep)', LIGHT: 'var(--light)', REM: 'var(--rem)', AWAKE: 'var(--awake)' };
+for (const s of D.last.stages) g += `<path d="${arc(s.s, s.e, s.type === 'DEEP' ? 66 : 71, 82)}" fill="${C[s.type]}"/>`;
+const EC = { strength: 'var(--str)', walk: 'var(--walk)', ball: 'var(--ball)' };
+for (const e of D.events) g += `<path d="${arc(e.s, e.e, 66, 82)}" fill="${EC[e.kind]}"/>`;
+// labels outside the dial, at each thing's middle
+const lab = (t, a2, b2, dy = 0) => {
+  // a leader from the ring to the nearer side edge, so labels never leave the screen
+  const a = ang(t), right = Math.sin(a) >= 0, [lx, ly] = pt(a, 130), y = ly + dy, x = right ? 385 : 8;
+  const ex = right ? Math.max(lx + 10, 300) : Math.min(lx - 10, 93);
+  return `<polyline points="${lx},${ly} ${ex},${y} ${right ? x - 2 : x + 2},${y}" fill="none" stroke="var(--mut)" stroke-width=".8"/><text class="lab" x="${x}" y="${y - 5}" text-anchor="${right ? 'end' : 'start'}">${a2}</text><text class="lab2" x="${x}" y="${y + 12}" text-anchor="${right ? 'end' : 'start'}">${b2}</text>`;
+};
+const peak = Math.round(Math.max(...D.dayHr.filter((p) => p.t >= D.events[2].s && p.t < D.events[2].e).map((p) => p.v)));
+g += lab((D.last.bed + D.last.wake) / 2, '睡 7 小时 3 分钟', `${D.hm(D.last.bed)}–${D.hm(D.last.wake)}`, 40);
+g += lab((D.events[0].s + D.events[0].e) / 2, '力量 52 分钟', '最高 149 bpm', -10);
+g += lab((D.events[1].s + D.events[1].e) / 2, '散步 32 分钟', '12:34', -6);
+g += lab((D.events[2].s + D.events[2].e) / 2, '篮球 76 分钟', `最高 ${peak} bpm`, 20);
+// now hand
+const [nx, ny] = pt(ang(end), 131), [nx2, ny2] = pt(ang(end), 60);
+g += `<line x1="${nx2}" y1="${ny2}" x2="${nx}" y2="${ny}" stroke="var(--ink)" stroke-width="1.5"/><circle cx="${nx}" cy="${ny}" r="3.5" fill="var(--ink)"/>`;
+// centre
+g += `<text class="cn" x="${cx}" y="${cy - 34}" text-anchor="middle">恢复分</text><text class="big" x="${cx}" y="${cy + 24}" text-anchor="middle">${D.today.recovery}</text><text class="cn" x="${cx}" y="${cy + 44}" text-anchor="middle">睡眠分 ${D.today.sleepScore}</text>`;
+document.getElementById('dial').innerHTML = g;
+const cell = (k, c, v, n) => `<div><div class="k"><i style="background:${c}"></i>${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+document.getElementById('row').innerHTML =
+  cell('静息心率', 'var(--hr)', `${D.today.rhr}<small>bpm</small>`, '正常 56–61') +
+  cell('HRV', 'var(--light)', `${D.today.hrv}<small>ms</small>`, '比平时高 6 ms') +
+  cell('步数', 'var(--ink)', `11,240`, '平时到这会 9,800');
+document.getElementById('lifts').innerHTML = D.events[0].lifts.map((l) => `<div class="lift"><b>${l.n}</b><span class="sets">${l.sets.join(' · ')}<small>${l.kg ? l.kg + ' kg' : '次'}</small></span><span class="n">${l.note}</span></div>`).join('');
+</script></body></html>

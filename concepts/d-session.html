@@ -1,0 +1,55 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日晷 训练</title><link rel="stylesheet" href="base.css"><link rel="stylesheet" href="dialstyle.css"></head><body>
+<div class="hd"><h1>运动 · 力量 · 今天早上</h1><span class="r">07:11–08:03</span></div>
+<svg id="dial" viewBox="0 0 393 392" width="393" height="392" style="margin:4px -16px 0"></svg>
+<div class="n" style="margin:-2px 0 14px;text-align:center">红线是心率，红点是每组的最高值。每一瓣是 app 认出的一组。</div><div style="font-size:17px;font-weight:600">练的是这些吗？</div>
+<div id="lifts"></div>
+<div class="btns"><span>确认</span><span class="mic" aria-label="说"><svg viewBox="0 0 24 24" width="22" height="22"><rect x="8.5" y="2.5" width="7" height="12.5" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11.5a7 7 0 0 0 14 0M12 18.5v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span></div><div class="n" style="text-align:right;margin-top:10px">不是训练</div>
+<script type="module">
+import * as D from './data.js';
+import { makeDial, corona, smooth } from './dialkit.js';
+import { tabs } from './tabs.js';
+const e = D.events[0], cx = 196.5, cy = 200; document.querySelector(".hd .r").textContent = "07:11–08:03 · 52 分钟";
+// the session is one lap of the dial, with a gap at the top that holds the heart-rate scale
+const GAP = 0.5;
+const K = makeDial({ cx, cy, mode: 'session', from: e.s, to: e.e, gap: GAP });
+const min = (e.e - e.s) / 6e4;
+const LO = 80, HI = 150, R0 = 100, R1 = 148, rOf = (v) => R0 + (Math.max(LO, Math.min(HI, v)) - LO) / (HI - LO) * (R1 - R0);
+let g = '';
+// heart-rate zones as faint rings (moderate / vigorous), so the line has something to be read against
+const band = (v0, v1, op) => `<path d="${K.arc(e.s, e.e, rOf(v0), rOf(v1))}" fill="var(--hr)" opacity="${op}"/>`;
+g += band(113, 136, .07) + band(136, 150, .15);
+// reference circles every 20 bpm, labelled in the gap
+for (const v of [100, 120, 140]) {
+  g += `<path d="${K.arc(e.s, e.e, rOf(v) - .4, rOf(v) + .4)}" fill="var(--mut)" opacity=".5"/>`;
+  g += `<text x="${cx}" y="${cy - rOf(v) + 4}" text-anchor="middle" style="font-size:12px;fill:var(--ink2)">${v}</text>`;
+}
+g += `<text class="cn" x="${cx}" y="${cy - R1 - 6}" text-anchor="middle" style="font-size:10px">bpm</text>`;
+// zone names along the gap, on the right
+for (const [v0, v1, name] of [[113, 136, '中等'], [136, 150, '剧烈']]) { const [x, y] = K.pt(GAP / 2 + .02, (rOf(v0) + rOf(v1)) / 2); g += `<text class="cn" x="${x + 2}" y="${y + 4}" style="font-size:10px;fill:var(--hr)">${name}</text>`; }
+// minutes around the outside
+g += `<circle cx="${cx}" cy="${cy}" r="158" fill="none" stroke="var(--line)"/>`;
+for (let m = 0; m <= min; m++) { const a = K.ang(e.s + m * 6e4), L = m % 10 === 0; const [x0, y0] = K.pt(a, 158), [x1, y1] = K.pt(a, L ? 151 : 155); g += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" class="${L ? 'tkl' : 'tk'}"/>`; if (L) { const [tx, ty] = K.pt(a, 170); g += `<text x="${tx}" y="${ty + 5}" text-anchor="middle" class="tn" style="font-size:14px">${m ? m + ' 分' : '07:11'}</text>`; } }
+const hr = D.dayHr.filter((p) => p.t >= e.s && p.t < e.e);
+g += corona(K, hr, R0, R1, { lo: LO, hi: HI, width: 1.5, fill: false });
+// sets: the app found 8 peaks; 4 bench, 4 pull-ups (one petal each)
+const sets = []; for (let j = 0; j < 8; j++) { const s = e.s + (6 + j * 5.5) * 6e4; sets.push({ s, e: s + 1.3 * 6e4, lift: j < 4 ? 0 : 1, reps: e.lifts[j < 4 ? 0 : 1].sets[j % 4] }); }
+for (const st of sets) {
+  g += `<path d="${K.arc(st.s - 0.6 * 6e4, st.e + 0.6 * 6e4, 62, 86)}" fill="${st.lift ? 'var(--str2)' : 'var(--str)'}"/>`;
+  const [x, y] = K.pt(K.ang((st.s + st.e) / 2), 74);
+  g += `<text x="${x}" y="${y + 6}" text-anchor="middle" style="font-size:18px;fill:#fff">${st.reps}</text>`;
+  const raw = D.dayHr.filter((p) => p.t >= st.s - 6e4 && p.t < st.e + 6e4); const top = raw.reduce((a, p) => (p.v > a.v ? p : a));
+  const [px, py] = K.pt(K.ang(top.t), rOf(top.v)); g += `<circle cx="${px}" cy="${py}" r="2.6" fill="var(--hr)"/>`;
+  const [qx, qy] = K.pt(K.ang(top.t), rOf(top.v) - 12); g += `<text x="${qx}" y="${qy + 4}" text-anchor="middle" class="halo" style="font-size:13px;fill:var(--hr)">${Math.round(top.v)}</text>`;
+}
+// group labels outside
+for (const [i, name, sub] of [[1, '卧推 70 kg', '4 组'], [5, '引体向上', '4 组']]) {
+  const t = (sets[i].s + sets[i + 1].e) / 2, a = K.ang(t), [x, y] = K.pt(a, 182), right = Math.sin(a) > 0;
+  g += `<text class="cnb" x="${right ? 385 : 8}" y="${y}" text-anchor="${right ? 'end' : 'start'}">${name}</text><text class="cn" x="${right ? 385 : 8}" y="${y + 15}" text-anchor="${right ? 'end' : 'start'}">${sub}</text>`;
+}
+const peak = Math.round(Math.max(...D.dayHr.filter((p) => p.t >= e.s && p.t < e.e).map((p) => p.v)));
+g += `<text class="cn" x="${cx}" y="${cy - 30}" text-anchor="middle">一共</text><text class="big" x="${cx}" y="${cy + 18}" text-anchor="middle" style="font-size:58px">8<tspan class="cn" dx="4">组</tspan></text><text class="cn" x="${cx}" y="${cy + 38}" text-anchor="middle">最高 ${peak} bpm</text>`;
+document.getElementById('dial').innerHTML = g;
+document.getElementById('lifts').innerHTML = e.lifts.map((l) => `<div class="lift"><b>${l.n}</b><span class="sets">${l.sets.join(' · ')}<small>${l.kg ? l.kg + ' kg' : '次'}</small></span><span class="n">${l.note}</span></div>`).join('');
+document.body.insertAdjacentHTML('beforeend', tabs('运动'));
+</script></body></html>
