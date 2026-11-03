@@ -180,11 +180,13 @@ async function scan() {
       const [hr, steps] = await Promise.all([data.hrSeries(+d, +end, 60), data.stepsSeries(+d, +end, 60)]);
       if (!hr.length) continue;
       const m = S.model;
+      const diag = [];
       const cands = tr.detect({
-        dayStart: d, hr, steps, rest: m.daily[date]?.rhr,
+        dayStart: d, hr, steps, rest: m.daily[date]?.rhr, diag,
         sleeps: m.sleeps.filter((s) => s.end > +d && s.start < +end),
         exercises: m.exercises.filter((e) => e.end > +d && e.start < +end),
       });
+      if (date === ymd(today())) S.diag = { at: Date.now(), hrN: hr.length, last: hr.at(-1)?.t, list: diag };
       if (await tr.addCandidates(date, cands)) changed = true;
     } catch (e) { console.warn('scan', date, e); }
   }
@@ -244,6 +246,14 @@ const ago = (t) => {
   const m = Math.round((Date.now() - t) / 60e3);
   return m < 1 ? '刚刚' : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${md(new Date(t))} ${hm(new Date(t))}`;
 };
+// what today's scan saw: each raised-HR stretch and why it was (not) counted as a strength session
+function scanInfo() {
+  const g = S.diag;
+  if (!g || S.demo) return '';
+  const rows = g.list.length ? g.list.map((x) => `<div class="set-row col"><span>${hm(new Date(x.start))}–${hm(new Date(x.end))} · ${x.mins} 分钟 · 平均 ${x.avg} 最高 ${x.max}</span><small>${x.why ? `没算：${esc(x.why)}` : '认出来了'}（静息 ${x.base}，${x.peaks} 个高峰，每分钟 ${x.steps} 步）</small></div>`).join('')
+    : '<div class="set-row col"><span>今天没有心率明显升高的一段</span></div>';
+  return `<div class="set-row col"><span>今天的识别</span><small>${ago(g.at)}查过，心率读到 ${g.last ? hm(new Date(g.last)) : '–'}</small></div>${rows}`;
+}
 const BATT = { High: '电量高', Medium: '电量中', Low: '电量低', Critical: '电量很低' };
 
 function openSettings() {
@@ -286,6 +296,7 @@ function openSettings() {
       <button class="btn" data-act="export">导出训练记录（JSON）</button>
     </section>
     <section class="set-g"><h4>力量训练</h4>
+      ${scanInfo()}
       <label class="sw"><span>下次训练自动加重量<small>上次每组都做满、不吃力时</small></span><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}></label>
     </section>
     <section class="set-g"><h4>数据</h4>
