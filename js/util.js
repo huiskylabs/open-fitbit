@@ -28,16 +28,19 @@ export const minOfDay = (d) => d.getHours() * 60 + d.getMinutes() + d.getSeconds
 export const nightMin = (d) => { const m = minOfDay(d); return m >= 12 * 60 ? m - 1440 : m; };
 export const clockLabel = (m) => { m = Math.round(((m % 1440) + 1440) % 1440); return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; };
 
-// 452 → "7 h 32 m"; 50 → "50 m"
+// One way to write a duration everywhere: 452 → "7 小时 32 分钟", 480 → "8 小时", 50 → "50 分钟"
 export const hmDur = (min) => {
-  min = Math.round(min || 0);
+  min = Math.round(Math.abs(min || 0));
   const h = Math.floor(min / 60), m = min % 60;
-  return h ? `${h} h ${pad2(m)} m` : `${m} m`;
+  return h ? (m ? `${h} 小时 ${m} 分钟` : `${h} 小时`) : `${m} 分钟`;
 };
+// the evening a night started on: the night that ends on 11月2日 is "11月1日晚"
+export const eveOf = (date) => addDays(parseYmd(date), -1);
+export const nightName = (date) => { const e = eveOf(date); return `${md(e)} 周${wk(e)}晚上`; };
 export const minLabel = (min) => `${Math.round(min)} 分钟`;
 export const fmtInt = (n) => (n == null ? '–' : Math.round(n).toLocaleString('en-US'));
 export const fmt1 = (n) => (n == null ? '–' : (Math.round(n * 10) / 10).toFixed(1));
-export const signed = (n, digits = 1) => { const v = Math.round(n * 10 ** digits) / 10 ** digits; return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(digits); };
+export const signed = (n, digits = 1) => { const v = Math.round(n * 10 ** digits) / 10 ** digits; return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(digits); };
 export const kg = (n) => `${+(Math.round(n * 4) / 4).toFixed(2)}`;
 
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -83,13 +86,22 @@ export function rolling(series, days = 7) {
   return out;
 }
 
-// Personal normal range for one day: mean ± SD of the 30 days before it (at least `minN` values).
-export function baselineAt(byDate, date, { window = 30, minN = 7, minHalf = 0 } = {}) {
+// Personal normal range for one day: mean ± 1.5 SD of the 30 days before it (at least `minN` values).
+// At 1.5 SD a value lands outside on the worse side about once in 15 days, so a mark means something.
+export function baselineAt(byDate, date, { window = 30, minN = 7, minHalf = 0, k = 1.5 } = {}) {
   const t = parseYmd(date);
   const vals = [];
   for (let i = 1; i <= window; i++) { const v = byDate[ymd(addDays(t, -i))]; if (v != null) vals.push(v); }
   if (vals.length < minN) return null;
   const m = mean(vals), s = sd(vals) || 0;
-  const half = Math.max(s, minHalf);
+  const half = k * Math.max(s, minHalf);
   return { mean: m, sd: s, lo: m - half, hi: m + half, n: vals.length };
 }
+
+// p-th percentile (0–1) of a list, for "多数晚上 22:55–00:10"
+export const quantile = (xs, p) => {
+  const v = xs.filter((x) => x != null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const i = (v.length - 1) * p, a = Math.floor(i), b = Math.ceil(i);
+  return v[a] + (v[b] - v[a]) * (i - a);
+};

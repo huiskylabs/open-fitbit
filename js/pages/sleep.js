@@ -1,18 +1,17 @@
-// 睡眠：日 = 一晚的分期；周 = 作息条形码；月 = 规律；3 月 = 趋势
-import { hm, md, parseYmd, ymd, addDays, mean, sd, nightMin, clockLabel, hmDur, signed, wd, today } from '../util.js';
+// 睡眠：睡够没有、规律吗。日 = 一晚的分期；周 = 每晚几点睡、睡多久；月 = 规律；3 个月 = 每周的变化
+import { hm, md, parseYmd, mean, nightMin, clockLabel, hmDur, isWeekend, quantile, eveOf } from '../util.js';
 import * as C from '../charts.js';
-import { card, nums, num, durHtml, empty, nightRows, xLabels, esc } from './common.js';
+import { card, nums, num, durHtml, empty, nightRows, facts, sleepWhy, usualStages, nightLabel, METRIC, unitHtml, rangeText, sp, offText } from './common.js';
+import { isWorse, WORSE } from '../scores.js';
 import { hrSeries } from '../data.js';
 
-export const VITALS = [
-  { key: 'nremHr', name: '睡眠心率', unit: 'bpm', fmt: (v) => Math.round(v) },
-  { key: 'hrv', name: 'HRV', unit: 'ms', fmt: (v) => Math.round(v) },
-  { key: 'resp', name: '呼吸率', unit: '', fmt: (v) => v.toFixed(1) },
-  { key: 'spo2', name: '血氧', unit: '%', fmt: (v) => Math.round(v) },
-  { key: 'skinRel', name: '皮温', unit: '°C', fmt: (v) => signed(v, 1) },
-];
+export const VITALS = ['nremHr', 'hrv', 'resp', 'spo2', 'skinRel'];
 
-const avgClock = (vals) => (vals.length ? mean(vals) : null);
+// "22:55–00:10": the bedtimes of most nights (the middle 70 %)
+const mostBeds = (ns) => {
+  const beds = ns.map((n) => nightMin(new Date(n.start)));
+  return beds.length >= 3 ? `${clockLabel(quantile(beds, 0.15))}–${clockLabel(quantile(beds, 0.85))}` : null;
+};
 
 export function render(ctx) {
   const { v, per } = ctx;
@@ -20,108 +19,116 @@ export function render(ctx) {
   const rows = nightRows(v, per);
   const ns = rows.map((r) => r.night).filter(Boolean);
   if (!ns.length) return empty('这段时间没有睡眠记录');
-  const avgSleep = mean(ns.map((n) => n.asleep));
-  const bed = avgClock(ns.map((n) => nightMin(new Date(n.start))));
-  const wake = avgClock(ns.map((n) => nightMin(new Date(n.end))));
-  const bedSd = sd(ns.map((n) => nightMin(new Date(n.start))));
-  const top = per.range === 'w'
-    ? nums(num('平均时长', durHtml(avgSleep)), num('平均上床 → 起床', `${clockLabel(bed)} → ${clockLabel(wake)}`, '', 'sm'))
-    : per.range === 'm'
-      ? nums(num('平均时长', durHtml(avgSleep)), num('上床波动', `±${Math.round(bedSd || 0)}`, '分', 'sm'), num('上床 → 起床', `${clockLabel(bed)} → ${clockLabel(wake)}`, '', 'sm'))
-      : nums(num('平均时长', durHtml(avgSleep)), num('上床波动', `±${Math.round(bedSd || 0)}`, '分', 'sm'), num('睡够 8 小时', ns.filter((n) => n.asleep >= v.goalMin).length, '晚', 'sm'));
-  let out = card('', top, { cls: 'flat' });
+  const enough = ns.filter((n) => n.asleep >= v.goalMin).length;
+  const beds = mostBeds(ns);
+  let out = card('', nums(
+    num('平均睡着', durHtml(mean(ns.map((n) => n.asleep)))),
+    per.range === 'q' ? num(`睡够 ${hmDur(v.goalMin)}`, `${enough}/${ns.length}`, '晚', 'sm') : '',
+    beds ? num('多数晚上上床', beds, '', 'sm') : '',
+  ), { cls: 'flat' });
   if (per.range === 'w') {
-    out += card('睡眠条形码', C.barcode(rows, { rowH: 22 }));
-    out += card('每晚时长', C.sleepBars(rows, { goal: v.goalMin }), { sub: '虚线 = 8 小时' });
+    out += card('几点睡、几点起', C.barcode(rows, { rowH: 22 }));
+    out += card(`睡够 ${hmDur(v.goalMin)}：${enough}/${ns.length} 晚`, C.sleepBars(rows, { goal: v.goalMin }));
   } else if (per.range === 'm') {
-    out += card('睡眠条形码', C.barcode(rows, { rowH: 10, label: (r, i) => (i % 7 === 0 ? String(parseYmd(r.date).getDate()) : '') }), { sub: '灰底 = 周末' });
-    out += card('每晚时长', C.sleepBars(rows, { goal: v.goalMin, stacked: false, avgLine: true, xLabel: (r, i) => (i % 7 === 0 ? String(parseYmd(r.date).getDate()) : '') }), { sub: '线 = 7 天平均' });
-    out += card('平均阶段构成', stageAvgBar(ns));
+    out += card('几点睡、几点起', C.barcode(rows, { rowH: 10, stages: false, label: (r, i) => (i % 7 === 0 ? String(eveOf(r.date).getDate()) : '') }), { lead: weekendLine(rows) });
+    out += card(`睡够 ${hmDur(v.goalMin)}：${enough}/${ns.length} 晚`, C.sleepBars(rows, { goal: v.goalMin, avgLine: true, xLabel: (r, i) => (i % 7 === 0 ? String(eveOf(r.date).getDate()) : '') }));
   } else {
-    const byDate = Object.fromEntries(rows.filter((r) => r.night).map((r) => [r.date, r.night.asleep]));
-    out += card('日历热力图', C.calHeat(byDate, { start: per.start, end: per.end, max: v.goalMin + 60, min: v.goalMin - 180 }) + C.heatLegend(), { sub: '一列一周' });
-    const weeks = weekBuckets(per, rows);
-    out += card('作息漂移', C.drift(weeks), { sub: '每周平均上床 → 起床' });
-    out += card('每周平均分期', C.weeklyStages(weeks, { goal: v.goalMin }), { sub: '虚线 = 8 小时' });
+    const weeks = weekBuckets(rows);
+    out += trendCard('时长', weeks.map((w) => ({ ...w, v: w.asleep })), hmDur, (d) => `比 3 个月前${d > 0 ? '多' : '少'} ${hmDur(d)}`);
+    out += trendCard('上床', weeks.map((w) => ({ ...w, v: w.bed })), clockLabel, (d) => `比 3 个月前${d > 0 ? '晚' : '早'} ${hmDur(d)}`);
   }
-  out += vitalsTrend(ctx);
+  out += vitalsCard(ctx);
   const naps = per.days.flatMap((d) => v.naps[d] || []);
-  if (naps.length && per.range !== 'q') out += card('小睡', `<div class="chips">${naps.slice(-8).map((n) => `<span class="chip">${md(new Date(n.end))} ${hm(new Date(n.start))} · ${Math.round(n.asleep)} 分钟</span>`).join('')}</div>`);
+  if (naps.length && per.range !== 'q') out += card(`小睡 ${naps.length} 次`, facts(naps.slice(-8).reverse().map((n) => [md(new Date(n.end)), `${hm(new Date(n.start))}–${hm(new Date(n.end))}`, hmDur(n.asleep)])));
   return out;
 }
 
-function stageAvgBar(ns) {
-  const keys = ['DEEP', 'LIGHT', 'REM', 'AWAKE'];
-  const staged = ns.filter((n) => n.hasStages);
-  if (!staged.length) return '';
-  const avg = Object.fromEntries(keys.map((k) => [k, mean(staged.map((n) => n.byStage[k] || 0))]));
-  return C.stageBar(avg) + C.stageLegend(avg);
+// "周五、周六晚上平均晚睡 52 分钟" — only when it's a real difference
+function weekendLine(rows) {
+  const bed = (r) => nightMin(new Date(r.night.start));
+  const we = rows.filter((r) => r.night && isWeekend(parseYmd(r.date))).map(bed);
+  const wd = rows.filter((r) => r.night && !isWeekend(parseYmd(r.date))).map(bed);
+  if (we.length < 2 || wd.length < 4) return '';
+  const d = mean(we) - mean(wd);
+  return Math.abs(d) < 20 ? '周末和平时差不多' : `周五、周六晚上平均${d > 0 ? '晚' : '早'}睡 ${hmDur(d)}`;
 }
 
-function weekBuckets(per, rows) {
-  const out = [];
-  for (let i = 0; i < 13; i++) {
-    const chunk = rows.slice(i * 7, i * 7 + 7).filter((r) => r.night);
-    const ns = chunk.map((r) => r.night);
-    const st = ns.filter((n) => n.hasStages);
-    const beds = ns.map((n) => nightMin(new Date(n.start))), wakes = ns.map((n) => nightMin(new Date(n.end)));
-    const startD = parseYmd(rows[i * 7]?.date || per.from);
-    out.push({
-      label: `${md(startD)} 起一周`, short: i === 0 ? '13 周前' : i === 12 ? '本周' : '',
-      bed: ns.length ? mean(beds) : null, wake: ns.length ? mean(wakes) : null,
-      bedLo: ns.length ? Math.min(...beds) : null, bedHi: ns.length ? Math.max(...beds) : null,
-      wakeLo: ns.length ? Math.min(...wakes) : null, wakeHi: ns.length ? Math.max(...wakes) : null,
-      asleep: ns.length ? mean(ns.map((n) => n.asleep)) : 0,
-      DEEP: st.length ? mean(st.map((n) => n.byStage.DEEP || 0)) : 0,
-      LIGHT: st.length ? mean(st.map((n) => n.byStage.LIGHT || 0)) : ns.length ? mean(ns.map((n) => n.asleep)) : 0,
-      REM: st.length ? mean(st.map((n) => n.byStage.REM || 0)) : 0,
-      AWAKE: st.length ? mean(st.map((n) => n.byStage.AWAKE || 0)) : 0,
-    });
-  }
-  return out;
+// 13 blocks of 7 nights; the last one ends today
+function weekBuckets(rows) {
+  return Array.from({ length: 13 }, (_, i) => {
+    const ns = rows.slice(i * 7, i * 7 + 7).map((r) => r.night).filter(Boolean);
+    const a = rows[i * 7]?.date, b = rows[i * 7 + 6]?.date;
+    return {
+      label: a && b ? `${md(parseYmd(a))}–${md(parseYmd(b))}` : '',
+      short: i === 0 ? '12 周前' : i === 12 ? '近 7 天' : '',
+      bed: ns.length ? mean(ns.map((n) => nightMin(new Date(n.start)))) : null,
+      asleep: ns.length ? mean(ns.map((n) => n.asleep)) : null,
+    };
+  });
 }
 
-function vitalsTrend(ctx) {
+// one weekly line; the title compares the last 4 weeks with the first 4
+function trendCard(what, weeks, fmt, change) {
+  const first = mean(weeks.slice(0, 4).map((w) => w.v)), last = mean(weeks.slice(-4).map((w) => w.v));
+  if (first == null || last == null) return '';
+  const d = last - first;
+  return card(`${what}：${Math.abs(d) < 10 ? '和 3 个月前差不多' : change(d)}`, C.weekLine(weeks, { fmt }), { sub: '每周平均' });
+}
+
+// One cell per vital: the average of the period, today's normal range, and a small trend (orange
+// dots = nights on the worse side). 3 months use weekly averages so the trend isn't lost in noise.
+// The title flags only an average outside the range: single nights out of range happen often.
+function vitalsCard(ctx) {
   const { v, per } = ctx;
-  const cards = VITALS.map((x) => {
-    const s = per.days.map((date) => ({ date, v: v.daily[date]?.[x.key] ?? null }));
-    const vals = s.filter((p) => p.v != null);
+  const avgs = [];
+  const cells = VITALS.map((k) => {
+    const daily = per.days.map((date) => ({ date, v: v.daily[date]?.[k] ?? null }));
+    const vals = daily.filter((p) => p.v != null);
     if (vals.length < 2) return '';
-    const last = vals.at(-1).v;
-    return `<div class="vital"><div class="vk">${x.name}</div><div class="vv">${x.fmt(last)}<small>${x.unit}</small></div>${C.sparkBand(s, v.base[x.key] || {})}</div>`;
+    const s = per.range === 'q' ? Array.from({ length: 13 }, (_, i) => { const w = daily.slice(i * 7, i * 7 + 7); return { date: w.at(-1).date, v: mean(w.map((p) => p.v)) }; }) : daily;
+    const avg = mean(vals.map((p) => p.v)), b = v.base[k]?.[vals.at(-1).date];
+    avgs.push({ k, v: avg, b });
+    return `<div class="vital"><div class="vk">${METRIC[k].name}</div><div class="vv${isWorse(k, avg, b) ? ' warn' : ''}">${unitHtml(k, avg)}</div><div class="vn">${rangeText(k, b)}</div>${C.sparkBand(s, v.base[k] || {}, { worse: WORSE[k] })}</div>`;
   }).join('');
-  if (!cards) return '';
-  const lab = { w: '7 晚', m: '30 晚', q: '13 周' }[per.range];
-  return card(`夜间体征 · ${lab}`, `<div class="vitals">${cards}</div>`, { sub: '蓝带 = 你的正常范围' });
+  if (!cells) return '';
+  const t = offText(avgs, '平均都在正常范围');
+  return card(`夜间体征：${t.warn ? `<span class="warn">${t.text}</span>` : t.text}`, `<div class="vitals">${cells}</div>`, { sub: per.range === 'q' ? '每周平均' : `${per.n} 晚平均` });
 }
 
 function day(ctx) {
   const { v, per } = ctx;
   const date = per.to;
   const n = v.nights[date];
-  if (!n) return empty('这晚没有睡眠记录');
-  const sc = v.sleepScores[date];
-  let out = card('', nums(
-    num('总时长', durHtml(n.asleep)),
-    num('上床 → 起床', `${hm(new Date(n.start))} → ${hm(new Date(n.end))}`, '', 'sm'),
-    sc ? num('睡眠分', sc.total, '', 'sm score') : '',
-  ), { cls: 'flat' });
-  out += card('夜间心率 · 分期', `<div id="hypno" data-date="${date}">${C.hypnogram(n)}</div>`, { sub: n.hasStages ? '' : '这晚只有总时长' });
+  if (!n) return empty(`${nightLabel(date)}没有睡眠记录`);
+  const sw = sleepWhy(v, date);
+  const durRow = sw?.rows.find((r) => r[0] === '时长');
+  let out = card('', nums(num('睡着', durHtml(n.asleep), '', '', durRow?.[2] || ''), sw ? num('睡眠分', sw.total, '', 'sm') : '')
+    + (sw ? facts(sw.rows.filter((r) => r !== durRow)) : ''), { cls: 'flat' });
+  const short = (n.short || []).length;
+  out += card('分期和心率', `<div id="hypno" data-date="${date}">${C.hypnogram(n)}</div>`, { sub: n.hasStages ? (short ? `短暂醒来 ${short} 次` : '') : '这晚只有总时长' });
   if (n.hasStages) {
-    // your 30-night average composition (for the ▼ marks)
-    const prev = [];
-    for (let i = 1; i <= 30; i++) { const p = v.nights[ymd(addDays(parseYmd(date), -i))]; if (p?.hasStages) prev.push(p); }
-    const avg = prev.length >= 5 ? Object.fromEntries(['DEEP', 'LIGHT', 'REM', 'AWAKE'].map((k) => [k, mean(prev.map((p) => p.byStage[k] || 0))])) : null;
-    out += card('阶段构成', C.stageBar(n.byStage, avg) + C.stageLegend(n.byStage), { sub: avg ? '▼ = 你的 30 天平均' : '' });
+    const u = usualStages(v, date);
+    const rows = C.STAGES.map((s) => [s.name, hmDur(n.byStage[s.key] || 0), u ? `平时 ${hmDur(u[s.key])}` : '']);
+    let title = '分期';
+    if (u) {
+      const diffs = C.STAGES.filter((s) => s.key !== 'AWAKE').map((s) => [s, (n.byStage[s.key] || 0) - u[s.key]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      const [s, d] = diffs[0];
+      title = Math.abs(d) < 15 ? '分期和平时差不多' : `${sp(s.name)}比平时${d > 0 ? '多' : '少'} ${hmDur(d)}`;
+    }
+    out += card(title, facts(rows));
   }
-  const vit = VITALS.map((x) => {
-    const val = v.daily[date]?.[x.key];
+  const cells = VITALS.map((k) => {
+    const val = v.daily[date]?.[k];
     if (val == null) return '';
-    return `<div class="vital"><div class="vk">${x.name}</div><div class="vv">${x.fmt(val)}<small>${x.unit}</small></div>${C.rangeMini(val, v.base[x.key]?.[date])}</div>`;
+    const b = v.base[k]?.[date], bad = isWorse(k, val, b);
+    return `<div class="vital"><div class="vk">${METRIC[k].name}</div><div class="vv${bad ? ' warn' : ''}">${unitHtml(k, val)}</div><div class="vn">${rangeText(k, b)}</div>${C.rangeMini(val, b, { worse: WORSE[k] })}</div>`;
   }).join('');
-  if (vit) out += card('夜间体征', `<div class="vitals">${vit}</div>`, { sub: '蓝带 = 你的正常范围' });
+  if (cells) {
+    const t = offText(VITALS.map((k) => ({ k, v: v.daily[date]?.[k], b: v.base[k]?.[date] })), '都在正常范围');
+    out += card(`夜间体征：${t.warn ? `<span class="warn">${t.text}</span>` : t.text}`, `<div class="vitals">${cells}</div>`);
+  }
   const naps = v.naps[date] || [];
-  if (naps.length) out += card('小睡', `<div class="chips">${naps.map((x) => `<span class="chip">${hm(new Date(x.start))}–${hm(new Date(x.end))} · ${Math.round(x.asleep)} 分钟</span>`).join('')}</div>`);
+  if (naps.length) out += card(`小睡 ${naps.length} 次`, facts(naps.map((x) => [`${hm(new Date(x.start))}–${hm(new Date(x.end))}`, hmDur(x.asleep), ''])));
   return out;
 }
 

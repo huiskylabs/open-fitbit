@@ -91,13 +91,21 @@ const days = (since, endEx = addDays(today(), 1)) => { const out = []; for (let 
 const sleepsOn = (date) => { const x = dayOf(date); return [x.sleep, x.nap].filter(Boolean); };
 
 // ---- minute-level heart rate and steps ----
-function minuteAt(t) {
-  const date = ymd(new Date(t));
+// the sleeps that can cover a minute of `date`: its own night and nap, and the night that starts that evening
+const sleepsFor = new Map();
+function sleepsAround(date) {
+  if (sleepsFor.has(date)) return sleepsFor.get(date);
+  const x = dayOf(date), nd = ymd(addDays(parseYmd(date), 1));
+  const out = [x.sleep, nd <= ymd(today()) ? dayOf(nd).sleep : null, x.nap].filter(Boolean);
+  sleepsFor.set(date, out);
+  return out;
+}
+
+function minuteAt(t, date = ymd(new Date(t))) {
   const x = dayOf(date);
   const r = rng('m' + Math.floor(t / 60e3));
   const n = r() - 0.5;
-  const nextNight = ymd(addDays(parseYmd(date), 1)) <= ymd(today()) ? dayOf(ymd(addDays(parseYmd(date), 1))).sleep : null;
-  for (const s of [x.sleep, nextNight, x.nap].filter(Boolean)) {
+  for (const s of sleepsAround(date)) {
     if (t >= s.start && t < s.end) {
       const st = s.stages.find((g) => t >= g.s && t < g.e)?.type || 'LIGHT';
       const v = x.metrics.rhr - 4 + { DEEP: -2, LIGHT: 0, REM: 5, AWAKE: 9, ASLEEP: 0 }[st] + n * 3 + 2 * Math.sin(t / 900e3);
@@ -183,12 +191,13 @@ export const demoSource = {
     }
     return out;
   },
+  // the day's total is the sum of the minute-level steps (so "平时到这个钟点" agrees with it)
   async getDailySteps(start, end) {
     return days(start, end).map((date) => {
-      const x = dayOf(date), r = rng('steps' + date);
-      let v = 7500 + r() * 4500 + x.ev.reduce((a, e) => a + (e.kind === 'basketball' ? 4200 : e.kind === 'walk' ? 2800 : 300), 0) - (x.ago >= SICK[0] && x.ago <= SICK[1] ? 4500 : 0);
-      if (x.ago === 0) v *= clamp((new Date().getHours() - 6) / 16, 0.05, 1);
-      return { date, steps: Math.round(v) };
+      const a = +parseYmd(date), b = Math.min(a + DAY, Date.now());
+      let v = 0;
+      for (let t = a; t < b; t += 60e3) v += minuteAt(t, date).steps;
+      return { date, steps: v };
     });
   },
   async getDailyZones(start, end) {

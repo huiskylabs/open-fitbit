@@ -71,6 +71,7 @@ export async function sync(model, { force = false } = {}) {
 }
 
 // ---------- derived view model ----------
+// smallest SD used for each personal range, so a very steady month doesn't make a hair-trigger range
 const BASE_KEYS = { rhr: 1.5, hrv: 3, nremHr: 1.5, resp: 0.4, spo2: 0.8, skinRel: 0.25 };
 
 export function derive(m, { goalMin = 480 } = {}) {
@@ -148,6 +149,22 @@ async function cached(kind, start, end, windowSec, fetcher) {
 
 export const hrSeries = (start, end, windowSec = 300) => cached('hr', +start, +end, windowSec, (a, b, w) => source.getHrSeries(a, b, w));
 export const stepsSeries = (start, end, windowSec = 60) => cached('st', +start, +end, windowSec, (a, b, w) => source.getStepsSeries(a, b, w));
+
+// Steps you usually have by this time of day: the 14 days before today, midnight to now, from
+// 15-minute counts (one request; past days never change, so it is cached).
+export async function stepsUsualByNow(now = Date.now()) {
+  const t0 = today(), from = addDays(t0, -14);
+  const pts = await stepsSeries(+from, +t0, 900);
+  const sinceMidnight = now - +t0;
+  const byDay = new Map();
+  for (const p of pts) {
+    const day = +startOfDay(new Date(p.t)), cut = day + sinceMidnight;
+    const part = p.t + 900e3 <= cut ? 1 : p.t < cut ? (cut - p.t) / 900e3 : 0;
+    byDay.set(day, (byDay.get(day) || 0) + p.v * part);
+  }
+  const vals = [...byDay.values()];
+  return vals.length >= 5 ? mean(vals) : null;
+}
 
 async function pruneCache() {
   const cut = ymd(addDays(today(), -21));

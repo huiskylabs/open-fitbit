@@ -1,5 +1,5 @@
 // Strength-training log: detect sessions from heart rate + steps, guess what was trained,
-// keep the log on the phone, and compute progress (top set, estimated 1RM, volume, sets per week).
+// keep the log on the phone, and compute progress (heaviest set, records, volume, sets per week).
 import * as store from './store.js';
 import { ymd, parseYmd, addDays, dayDiff, startOfDay, uid, median, mean, sum } from './util.js';
 
@@ -8,11 +8,13 @@ export const PARTS = {
   back: '背', lowback: '下背', glutes: '臀', hams: '大腿后',
 };
 
+// Lifts are told apart by name, not color: every lift is drawn in the strength color.
+// abbr = the one character used where a name doesn't fit (the calendar).
 export const LIFTS = {
-  squat: { name: '深蹲', color: 'var(--c-blue)', parts: { quads: 1, glutes: 1, hams: 0.5, lowback: 0.5, abs: 0.3 }, step: 2.5 },
-  bench: { name: '卧推', color: 'var(--c-orange)', parts: { chest: 1, shoulders: 0.5, triceps: 0.5 }, step: 2.5 },
-  deadlift: { name: '硬拉', color: 'var(--c-violet)', parts: { hams: 1, glutes: 1, lowback: 1, back: 0.5, quads: 0.3 }, step: 5 },
-  pullup: { name: '引体向上', color: 'var(--c-green)', parts: { back: 1, biceps: 0.5, shoulders: 0.2 }, step: 2.5, bodyweight: true },
+  squat: { name: '深蹲', abbr: '蹲', parts: { quads: 1, glutes: 1, hams: 0.5, lowback: 0.5, abs: 0.3 }, step: 2.5 },
+  bench: { name: '卧推', abbr: '推', parts: { chest: 1, shoulders: 0.5, triceps: 0.5 }, step: 2.5 },
+  deadlift: { name: '硬拉', abbr: '拉', parts: { hams: 1, glutes: 1, lowback: 1, back: 0.5, quads: 0.3 }, step: 5 },
+  pullup: { name: '引体向上', abbr: '引', parts: { back: 1, biceps: 0.5, shoulders: 0.2 }, step: 2.5, bodyweight: true },
 };
 export const BIG = Object.keys(LIFTS);
 
@@ -48,9 +50,9 @@ export async function replaceAll(next) {
 export function lift(id) {
   if (LIFTS[id]) return { id, ...LIFTS[id] };
   const c = get().lib[id];
-  return { id, name: c?.name || id, color: 'var(--c-grey)', parts: c?.parts || {}, step: c?.step || 2.5, bodyweight: !!c?.bodyweight };
+  const name = c?.name || id;
+  return { id, name, abbr: name.slice(0, 1), parts: c?.parts || {}, step: c?.step || 2.5, bodyweight: !!c?.bodyweight };
 }
-export const liftColor = (id) => lift(id).color;
 export const allLiftIds = () => [...BIG, ...Object.keys(get().lib)];
 
 export function ensureLift(id, def = {}) {
@@ -61,7 +63,6 @@ export function ensureLift(id, def = {}) {
 }
 
 // ---------- per-set maths ----------
-export const e1rm = (kg, reps) => (kg > 0 && reps > 0 ? kg * (1 + Math.min(reps, 12) / 30) : 0);
 export const setLoad = (id, s) => (lift(id).bodyweight ? s.add || 0 : s.kg || 0);
 export const topSet = (id, sets) => sets.reduce((best, s) => {
   const w = setLoad(id, s);
@@ -69,7 +70,7 @@ export const topSet = (id, sets) => sets.reduce((best, s) => {
 }, null);
 export const volume = (id, sets) => sum(sets.map((s) => (lift(id).bodyweight ? s.reps : s.reps * (s.kg || 0))));
 
-// "5×5 · 102.5 kg", "4×10", "8/8/6 · 60 kg"
+// "5×5 · 102.5 kg", "4×10", "8/8/6 · 60 kg", "11/11/10/9 次"
 export function setsLabel(id, sets) {
   if (!sets?.length) return '';
   const reps = sets.map((s) => s.reps);
@@ -77,7 +78,7 @@ export function setsLabel(id, sets) {
   const loads = sets.map((s) => setLoad(id, s));
   const top = Math.max(...loads);
   const repTxt = same ? `${sets.length}×${reps[0]}` : reps.join('/');
-  if (lift(id).bodyweight) return top > 0 ? `${repTxt} · +${top} kg` : repTxt;
+  if (lift(id).bodyweight) return top > 0 ? `${repTxt} · +${top} kg` : same ? repTxt : `${repTxt} 次`;
   return `${repTxt} · ${top} kg`;
 }
 
@@ -117,45 +118,65 @@ export function guess(date) {
   };
 }
 
-// "下次练什么": last sets of a lift + a suggestion that can be turned off in settings.
-// Suggest adding weight only when every set of the top weight hit the usual reps, no set was
-// called hard, and today's recovery score is not low.
+// What comes next for one lift: last time's sets, and whether to add a step of weight (or a rep).
+// Add only when every set at the top weight hit the usual reps, no set was called hard, and today's
+// recovery score is not low. Settings can turn the suggestion off.
 export function nextFor(id, recoveryToday = null) {
   const l = lastItem(id);
   if (!l) return null;
   const sets = l.item.sets;
   const reps = median(sets.map((s) => s.reps));
   const top = Math.max(...sets.map((s) => setLoad(id, s)));
-  const atTop = sets.filter((s) => setLoad(id, s) === top);
-  const full = atTop.every((s) => s.reps >= Math.floor(reps)) && !sets.some((s) => s.hard);
+  const hard = sets.some((s) => s.hard);
+  const allReps = sets.filter((s) => setLoad(id, s) === top).every((s) => s.reps >= Math.floor(reps));
+  const lowRec = recoveryToday != null && recoveryToday < 60;
   let suggestion = null;
   if (get().settings.hints !== false) {
     const lf = lift(id);
-    if (full && (recoveryToday == null || recoveryToday >= 60)) suggestion = lf.bodyweight && top === 0 ? { reps: 1 } : { kg: lf.step };
-    else suggestion = { keep: true };
+    if (allReps && !hard && !lowRec) suggestion = lf.bodyweight && top === 0 ? { reps: 1 } : { kg: lf.step };
+    else suggestion = { keep: true, why: hard ? '上次有一组吃力' : !allReps ? '上次没做满' : '今天恢复分低' };
   }
-  return { date: l.session.date, sets, suggestion, top };
+  return { date: l.session.date, sets, suggestion, top, reps };
 }
 
-// Progress series per session for one lift
+// The next session: the routine that is due (see guess), each lift with its target sets.
+export function nextPlan(recoveryToday = null) {
+  const g = guess(ymd(addDays(new Date(), 1)));
+  if (!g) return null;
+  const plan = g.items.map(({ lift: id }) => {
+    const n = nextFor(id, recoveryToday);
+    if (!n) return null;
+    const lf = lift(id), s = n.suggestion || {};
+    const f = lf.bodyweight ? 'add' : 'kg';
+    let sets = n.sets.map(({ reps, kg, add }) => ({ reps, kg: kg || 0, ...(add ? { add } : {}) }));
+    if (s.kg) sets = sets.map((x) => ((x[f] || 0) === n.top ? { ...x, [f]: n.top + s.kg } : x));
+    else if (s.reps) sets = sets.map((x) => ({ ...x, reps: x.reps + s.reps }));
+    // same weight: the target is to do the usual reps on every set (8/8/8/6 → 4×8)
+    else if (s.keep) sets = sets.map((x) => ({ ...x, reps: Math.max(x.reps, Math.floor(n.reps)) }));
+    const note = s.kg ? `上次 ${lf.bodyweight ? '+' : ''}${n.top} kg` : s.reps ? `上次 ${setsLabel(id, n.sets)}` : s.keep ? s.why : '';
+    return { lift: id, sets, note };
+  }).filter(Boolean);
+  return plan.length ? plan : null;
+}
+
+// Progress series per session for one lift: the heaviest set (most reps for body-weight lifts).
+// pr = heavier than every earlier session of that lift, the first one ever doesn't count.
+const topOf = (id, sets) => (lift(id).bodyweight ? Math.max(...sets.map((x) => x.reps)) : topSet(id, sets).kg);
 export function progress(id, from, to) {
   const out = [];
-  for (const s of sessionsIn(from, to)) {
+  let best = null;
+  for (const s of sessions()) {
     const it = s.items.find((x) => x.lift === id && x.sets?.length);
-    if (!it) continue;
-    const t = topSet(id, it.sets);
-    const bw = lift(id).bodyweight;
-    out.push({
-      date: s.date, id: s.id,
-      top: bw ? Math.max(...it.sets.map((x) => x.reps)) : t.kg,
-      e1rm: bw ? null : Math.max(...it.sets.map((x) => e1rm(x.kg, x.reps))),
-      vol: volume(id, it.sets),
-    });
+    if (!it || s.date > to) continue;
+    const top = topOf(id, it.sets);
+    if (s.date >= from) out.push({ date: s.date, id: s.id, top, vol: volume(id, it.sets), pr: best != null && top > best });
+    best = Math.max(best ?? -Infinity, top);
   }
-  let best = -Infinity;
-  for (const p of out) { p.pr = p.top > best; if (p.top > best) best = p.top; }
   return out;
 }
+
+// every new personal record in a period, all lifts
+export const records = (from, to) => allLiftIds().flatMap((id) => progress(id, from, to).filter((p) => p.pr).map((p) => ({ ...p, lift: id })));
 
 export function setsPerPart(from, to) {
   const acc = Object.fromEntries(Object.keys(PARTS).map((k) => [k, 0]));
@@ -192,6 +213,15 @@ export async function dismissPending(id) {
   const p = st.pending.find((x) => x.id === id);
   if (p) st.dismissed = [...new Set([...(st.dismissed || []), p.key])].slice(-200);
   st.pending = st.pending.filter((x) => x.id !== id);
+  await save();
+  return p || null;
+}
+
+// undo: put a detected session back on the list to confirm
+export async function restorePending(p) {
+  const st = get();
+  st.dismissed = (st.dismissed || []).filter((k) => k !== p.key);
+  if (!st.pending.some((x) => x.id === p.id)) st.pending.push(p);
   await save();
 }
 
@@ -317,16 +347,17 @@ export function summarizeHr(points, zoneOfFn, zones) {
   return { avg: Math.round(mean(points.map((p) => p.v))), max: Math.round(Math.max(...points.map((p) => p.hi ?? p.v))), zones: z };
 }
 
-// Color each detected peak by the set it belongs to (in the order the sets were done).
-export function colorPeaks(peaks, items) {
+// Which lift each heart-rate peak belongs to (in the order the sets were done) and the stretch
+// of the session each lift took, so the chart can name it.
+export function setSpans(peaks, items) {
   const order = items.flatMap((it) => it.sets.map(() => it.lift));
-  const colored = peaks.map((p, i) => ({ ...p, lift: order[i] || null, color: order[i] ? liftColor(order[i]) : 'var(--muted)' }));
+  const ps = peaks.map((p, i) => ({ ...p, lift: order[i] || null }));
   const spans = [];
   for (const it of items) {
-    const ps = colored.filter((p) => p.lift === it.lift);
-    if (ps.length) spans.push({ a: ps[0].t - 90e3, b: ps.at(-1).t + 90e3, color: liftColor(it.lift) });
+    const mine = ps.filter((p) => p.lift === it.lift);
+    if (mine.length) spans.push({ a: mine[0].t - 90e3, b: mine.at(-1).t + 90e3, name: lift(it.lift).name, abbr: lift(it.lift).abbr });
   }
-  return { peaks: colored, spans };
+  return { peaks: ps, spans };
 }
 
 export function weekKey(date) {

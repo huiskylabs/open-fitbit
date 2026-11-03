@@ -1,4 +1,4 @@
-// 我的健康 v2 — app shell: five tabs, one shared 日 / 周 / 月 / 3月 switch, sync, training detection, settings.
+// 我的健康 v2 — app shell: five tabs, one shared 日 / 周 / 月 / 3个月 switch, sync, training detection, settings.
 import * as auth from './js/auth.js';
 import * as api from './js/api.js';
 import * as data from './js/data.js';
@@ -11,7 +11,7 @@ import * as editor from './js/trainui.js';
 import { demoSource, demoTraining, DEMO_ZONES } from './js/demo.js';
 import { zoneOf, zonesOrDefault } from './js/scores.js';
 import { esc, ymd, parseYmd, addDays, today, dayDiff, hm, md, wk, clamp } from './js/util.js';
-import { RANGES, MAX_OFFSET, period, workouts } from './js/pages/common.js';
+import { MAX_OFFSET, period, workouts, nightLabel } from './js/pages/common.js';
 import * as pToday from './js/pages/today.js';
 import * as pSleep from './js/pages/sleep.js';
 import * as pWork from './js/pages/workouts.js';
@@ -19,7 +19,7 @@ import * as pTrain from './js/pages/trainpage.js';
 import * as pHeart from './js/pages/heart.js';
 
 const PAGES = { today: pToday, sleep: pSleep, workouts: pWork, train: pTrain, heart: pHeart };
-const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', train: '训练', heart: '心率' };
+const TITLES = { today: '今天', sleep: '睡眠', workouts: '运动', train: '力量', heart: '心率' };
 const SIZE = { d: 1, w: 7, m: 30, q: 91 };
 const $ = (s, el = document) => el.querySelector(s);
 
@@ -38,19 +38,28 @@ const S = {
 // ---------- render ----------
 function currentPeriod() { return S.tab === 'today' ? period('d', 0) : period(S.range, S.offset); }
 
+// the page name with the days it shows next to it ("睡眠 近 7 天"); a sleep day is named by its night
 function header(per) {
   $('#title').textContent = TITLES[S.tab];
   const d = today();
-  $('#date').textContent = S.tab === 'today' ? `${md(d)} 周${wk(d)}` : '';
+  $('#plabel').textContent = S.tab === 'today' ? `${md(d)} 周${wk(d)}` : S.tab === 'sleep' && per.range === 'd' ? nightLabel(per.to) : per.label;
   const p = $('#period');
   p.hidden = S.tab === 'today';
   if (!p.hidden) {
     p.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.range === S.range)));
-    $('#plabel').textContent = per.label;
     $('[data-nav="1"]').disabled = S.offset >= MAX_OFFSET[S.range];
     $('[data-nav="-1"]').disabled = S.offset <= 0;
   }
   document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === S.tab)));
+}
+
+// A failed sync in one plain sentence with the one button that helps; Google's own words go under 详情.
+function syncError(e) {
+  const m = String(e?.message || e || '');
+  if (e?.name === 'TypeError' || /Failed to fetch|Load failed|NetworkError|network connection/i.test(m)) return { text: '没连上网络', act: 'sync', btn: '重试' };
+  if (e?.status === 401 || e?.status === 403) return { text: '需要重新授权', act: 'login', btn: '重新连接', detail: m };
+  if (/[\u4e00-\u9fff]/.test(m) && !/^API \d/.test(m)) return { text: m, act: 'sync', btn: '重试' };
+  return { text: '同步失败', act: 'sync', btn: '重试', detail: m };
 }
 
 function banner() {
@@ -62,7 +71,10 @@ function banner() {
   else if (S.expired) h = '登录过期了（测试模式每 7 天一次）<button data-act="login">重新连接</button>';
   else if (S.reconnect === 'REVOKE') h = 'Google Health 不接受这次登录。先在 Google 账号里移除这个 app 的访问权限，再重新连接。<a class="bn" href="https://myaccount.google.com/connections" target="_blank" rel="noopener">去移除</a> <button data-act="login">重新连接</button>';
   else if (S.reconnect) h = '要重新连接一次 Fitbit，同步才能继续 <button data-act="login">重新连接</button>';
-  else if (S.err) h = `<span class="warn">${esc(S.err)}</span> <button data-act="sync">重试</button>`;
+  else if (S.err) {
+    const f = syncError(S.err);
+    h = `<span>${esc(f.text)}</span>${f.detail ? '<button class="bn-more" data-act="err-detail">详情</button>' : ''}<button data-act="${f.act}">${f.btn}</button>${f.detail ? `<div class="bn-detail" hidden>${esc(f.detail)}</div>` : ''}`;
+  }
   else if (ask === 'first') h = '训练记录自动备份到 Google Drive，还差授权一次 <button data-act="drive-auth">授权</button>';
   else if (ask === 'again') h = 'Google Drive 备份要重新授权一次 <button data-act="drive-auth">授权</button>';
   else if (signed && drive.status().kind === 'disabled') h = `备份还差一步：在 Google Cloud 里启用 Drive API <a class="bn" href="${esc(drive.status().link)}" target="_blank" rel="noopener">去启用</a>`;
@@ -155,7 +167,7 @@ async function syncNow({ force = false } = {}) {
     console.warn(e);
     if (!S.demo && !auth.isSignedIn()) S.expired = true;
     else if (e.message === 'RECONNECT' || e.message === 'REVOKE') S.reconnect = e.message;
-    else if (e.message !== 'NOT_SIGNED_IN') S.err = e.message;
+    else if (e.message !== 'NOT_SIGNED_IN') S.err = e;
   }
   S.syncing = false; syncUi();
   if (S.v) banner(); else render(); // no data yet: drop "正在读取数据…"
@@ -201,7 +213,7 @@ async function confirmPending(p) {
   const hr = await summarize(p.start, p.end, p.peaks).catch(() => null);
   const s = await tr.saveSession({ date: p.date, start: p.start, end: p.end, source: p.source, exId: p.exId, items: g.items, pendingId: p.id, hr });
   render({ keepScroll: true });
-  ui.toast('已保存', { action: '撤销', onAction: async () => { await tr.deleteSession(s.id); tr.get().pending.push(p); await tr.save(); render({ keepScroll: true }); } });
+  ui.toast('已保存', { action: '撤销', onAction: async () => { await tr.deleteSession(s.id); await tr.restorePending(p); render({ keepScroll: true }); } });
 }
 
 // ---------- backup ----------
@@ -243,10 +255,10 @@ function openSettings() {
   const left = t?.obtained_at ? Math.max(0, 7 - Math.floor((Date.now() - t.obtained_at) / 864e5)) : null;
   const ds = drive.status();
   const devs = S.demo ? [] : S.model?.devices || [];
-  ui.openSheet(`<h3>设置</h3>
+  ui.openSheet(`<div class="sheet-nav"><span></span><h3>设置</h3><button type="button" class="nav-btn b" data-act="close-sheet">完成</button></div>
     <section class="set-g"><h4>Fitbit 连接</h4>
-      ${signed ? `<div class="set-row"><span>${S.reconnect ? '要重新连接一次' : '已连接 ✓'}</span><small>${S.reconnect ? '' : `测试模式下大约 ${left ?? 7} 天后要重新连接`}</small></div>
-        <div class="btns"><button class="btn ghost" data-act="login">重新连接</button><button class="btn ghost danger" data-act="logout">断开</button></div>` : ''}
+      ${signed ? `<div class="set-row"><span>${S.reconnect ? '要重新连接一次' : '已连接'}</span><small>${S.reconnect ? '' : `测试模式下大约 ${left ?? 7} 天后要重新连接`}</small></div>
+        <div class="btns"><button class="btn" data-act="login">重新连接</button><button class="btn danger" data-act="logout">断开</button></div>` : ''}
       <details ${signed ? '' : 'open'}><summary>Client ID 和 Secret</summary>
         <label class="field"><span>Client ID</span><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.clientId || '')}" placeholder="xxxx.apps.googleusercontent.com"></label>
         <label class="field"><span>Client Secret</span><input id="csec" type="password" autocomplete="off" value="${esc(c.clientSecret || '')}" placeholder="GOCSPX-…"></label>
@@ -255,35 +267,34 @@ function openSettings() {
         <details class="sub-d"><summary>登录后跳回了 Safari？</summary>
           <div class="note">把 Safari 地址栏里以 <code>${esc(auth.redirectUri())}?</code> 开头的完整网址复制到这里：</div>
           <label class="field"><input id="paste-url" placeholder="粘贴网址" autocomplete="off"></label>
-          <button class="btn ghost" data-act="paste-code">完成连接</button>
+          <button class="btn" data-act="paste-code">完成连接</button>
         </details>
       </details>
     </section>
     ${devs.length ? `<section class="set-g"><h4>设备</h4>${devs.map((d) => `<div class="set-row"><span>${esc(d.name)}</span><small>${d.battery != null ? `电量 ${d.battery}%` : BATT[d.batteryStatus] || ''}${d.lastSync ? ` · 同步于 ${ago(d.lastSync)}` : ''}</small></div>`).join('')}</section>` : ''}
     <section class="set-g"><h4>语音记录</h4>
-      <div class="note">${voice.canListen() ? '按住“按住说话”说' : '点“说”，再点键盘上的 🎤'}，比如“深蹲 100 公斤 5 组 5 个，引体 4 组 8 个，最后一组很吃力”。手机自己就能读懂，不需要密钥。</div>
-      <details class="sub-d"${voice.hasKey() ? ' open' : ''}><summary>手机读不懂的交给 AI（可选）</summary>
+      <details class="plain"${voice.hasKey() ? ' open' : ''}><summary>手机听不懂的交给 AI（可选）</summary>
         <label class="field"><span>OpenRouter 或 Anthropic 密钥</span><input id="akey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(voice.getKey())}" placeholder="sk-or-… 或 sk-ant-…"></label>
         <label class="field row"><span>模型</span><select id="ai-model">${Object.entries(voice.MODELS).map(([k, m]) => `<option value="${k}"${voice.getModel() === k ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
-        <div class="note">密钥只保存在这台手机上。只有手机读不懂的那句话会发给模型。</div>
-        <button class="btn ghost" data-act="key-save">保存并试一下</button>
+        <div class="note">密钥只保存在这台手机上。只有手机听不懂的那句话会发给模型。</div>
+        <button class="btn" data-act="key-save">保存并试一下</button>
       </details>
     </section>
     <section class="set-g"><h4>训练记录备份</h4>
-      <div class="set-row"><span>自动备份到你的 Google Drive</span><small>${esc(backupState(ds))}</small></div>
-      ${ds.err && ds.kind !== 'net' ? `<div class="note"><span class="warn">${esc(ds.err)}</span></div>` : ''}
+      <div class="set-row col"><span>自动备份到你的 Google Drive</span><small>${esc(backupState(ds))}</small></div>
+      ${ds.err && ds.kind !== 'net' ? `<div class="note"><span class="warn">${esc(ds.kind === 'other' ? '上次备份没成功' : ds.err)}</span>${ds.kind === 'other' ? `<details class="sub-d"><summary>详情</summary>${esc(ds.err)}</details>` : ''}</div>` : ''}
       ${!S.demo && signed && ds.kind === 'disabled' ? `<a class="btn pri" href="${esc(ds.link)}" target="_blank" rel="noopener">去 Google Cloud 启用 Drive API</a>` : ''}
-      ${!S.demo && signed ? (drive.ask() ? `<button class="btn pri" data-act="drive-auth">${drive.ask() === 'again' ? '重新授权' : '授权'} Google Drive</button>` : '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>') : ''}
-      <button class="btn ghost" data-act="export">导出训练记录（JSON）</button>
+      ${!S.demo && signed ? (drive.ask() ? `<button class="btn pri" data-act="drive-auth">${drive.ask() === 'again' ? '重新授权' : '授权'} Google Drive</button>` : '<div class="btns"><button class="btn" data-act="backup-now">立即备份</button><button class="btn" data-act="restore">从备份恢复</button></div>') : ''}
+      <button class="btn" data-act="export">导出训练记录（JSON）</button>
     </section>
-    <section class="set-g"><h4>训练建议</h4>
-      <label class="sw"><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}><span>“下次练什么”里提示加重量</span></label>
+    <section class="set-g"><h4>力量训练</h4>
+      <label class="sw"><span>下次训练自动加重量<small>上次每组都做满、不吃力时</small></span><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}></label>
     </section>
     <section class="set-g"><h4>数据</h4>
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
-      <button class="btn ghost" data-act="resync"${S.demo ? ' disabled' : ''}>重新下载最近 120 天</button>
+      ${S.demo ? '' : '<button class="btn" data-act="resync">重新下载最近 120 天</button>'}
     </section>
-    <div class="note center">我的健康 v2.2 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
+    <div class="note center">v2.3</div>`, { cls: 'settings' });
 }
 
 async function settingsChange(e) {
@@ -330,7 +341,12 @@ async function onAction(el) {
     case 'pend-ok': { const p = pendingOf(id); if (p) await confirmPending(p); break; }
     case 'pend-talk': { const p = pendingOf(id); if (p) editPending(p, true); break; } // tap mode; must stay synchronous (keyboard)
     case 'pend-edit': { const p = pendingOf(id); if (p) editPending(p); break; }
-    case 'pend-no': await tr.dismissPending(id); render({ keepScroll: true }); ui.toast('好的，这次不算训练'); break;
+    case 'pend-no': {
+      const p = await tr.dismissPending(id);
+      render({ keepScroll: true });
+      ui.toast('已标记为不是训练', { action: '撤销', onAction: async () => { if (p) { await tr.restorePending(p); render({ keepScroll: true }); } } });
+      break;
+    }
     case 'sess-new': editor.open({ date: el.dataset.date && el.dataset.date <= ymd(today()) ? el.dataset.date : ymd(today()), items: [] }); break;
     case 'sess-edit': { const s = tr.get().sessions.find((x) => x.id === id); if (s) editor.open(s); break; }
     case 'sess-del': {
@@ -342,6 +358,8 @@ async function onAction(el) {
       break;
     }
     case 'settings': openSettings(); break;
+    case 'close-sheet': ui.closeSheet(); break;
+    case 'err-detail': { const d = $('#banner .bn-detail'); if (d) d.hidden = !d.hidden; break; }
     case 'sync': syncNow(); break;
     case 'login': if (auth.isConfigured()) await login(); else openSettings(); break;
     case 'drive-auth': if (auth.isConfigured()) await auth.startLogin('drive'); else openSettings(); break;
@@ -376,7 +394,7 @@ async function onAction(el) {
       if (!k) { ui.toast('已清除密钥'); break; }
       el.disabled = true; el.textContent = '试一下…';
       const who = `${voice.provider() === 'openrouter' ? 'OpenRouter' : 'Anthropic'} · ${voice.MODELS[voice.getModel()].label}`;
-      try { ui.toast((await voice.test()) ? `密钥可以用 ✓（${who}）` : '能连上模型，但结果不对'); } catch (e) { ui.toast(e.message, { ms: 5000 }); }
+      try { ui.toast((await voice.test()) ? `密钥可以用（${who}）` : '能连上模型，但结果不对'); } catch (e) { ui.toast(e.message, { ms: 5000 }); }
       el.disabled = false; el.textContent = '保存并试一下';
       break;
     }
@@ -401,6 +419,7 @@ async function onAction(el) {
 
 function bind() {
   ui.initTips();
+  document.addEventListener('touchstart', () => {}, { passive: true }); // lets iOS show :active (pressed) styles
   document.addEventListener('click', async (ev) => {
     const tab = ev.target.closest('.tabs [data-tab]');
     if (tab) { go({ tab: tab.dataset.tab }); return; }

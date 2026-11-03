@@ -4,39 +4,44 @@ import { hover, clearHover } from './charts.js';
 const $ = (s, el = document) => el.querySelector(s);
 
 // ---------- bottom sheet ----------
+// canClose() → false keeps it open (the editor asks first when there are changes); closeSheet({ force })
+// skips the question. Tap the dimmed page or drag the top down to close.
 let sheet = null;
-export function openSheet(html, { cls = '', onClose } = {}) {
-  closeSheet();
+export function openSheet(html, { cls = '', onClose, canClose } = {}) {
+  closeSheet({ force: true });
   const bg = document.createElement('div');
   bg.className = 'sheet-bg';
   const el = document.createElement('div');
   el.className = `sheet ${cls}`;
   el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
   el.innerHTML = `<div class="grab"></div>${html}`;
   bg.addEventListener('click', () => closeSheet());
   document.body.append(bg, el);
   document.body.classList.add('has-sheet');
-  sheet = { bg, el, onClose };
-  // drag the grab handle down to close
+  sheet = { bg, el, onClose, canClose };
   let y0 = null;
-  el.addEventListener('touchstart', (e) => { y0 = el.scrollTop <= 0 && e.target.closest('.grab, h3') ? e.touches[0].clientY : null; }, { passive: true });
+  el.addEventListener('touchstart', (e) => { y0 = el.scrollTop <= 0 && e.target.closest('.grab, .sheet-nav') && !e.target.closest('button') ? e.touches[0].clientY : null; }, { passive: true });
   el.addEventListener('touchmove', (e) => { if (y0 != null) { const dy = Math.max(0, e.touches[0].clientY - y0); el.style.transform = `translateY(${dy}px)`; } }, { passive: true });
   el.addEventListener('touchend', (e) => {
     if (y0 == null) return;
     const dy = e.changedTouches[0].clientY - y0;
     y0 = null;
-    if (dy > 90) closeSheet(); else el.style.transform = '';
+    el.style.transform = '';
+    if (dy > 90) closeSheet();
   });
   return el;
 }
-export function closeSheet() {
-  if (!sheet) return;
+export function closeSheet({ force = false } = {}) {
+  if (!sheet) return true;
+  if (!force && sheet.canClose && !sheet.canClose()) return false;
   const { bg, el, onClose } = sheet;
   sheet = null;
   bg.remove(); el.remove();
   document.body.classList.remove('has-sheet');
   hideTip();
   onClose?.();
+  return true;
 }
 export const sheetEl = () => sheet?.el || null;
 
