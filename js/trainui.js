@@ -40,7 +40,7 @@ function when() {
   return `${ed.date === ymd(today()) ? '' : md(d) + ' '}${hm(new Date(ed.start))}–${hm(new Date(ed.end))}`;
 }
 
-// Read view first: each lift is one line, "卧推  8 · 8 · 8 · 6  70 kg". Tap a line to change its numbers.
+// Read view first: each lift is one line, "卧推  3×8 + 1×6  70 kg". Tap a line to change its numbers.
 function setRow(it, i, s, k) {
   const bw = isBw(it.lift);
   const f = bw ? 'add' : 'kg';
@@ -56,13 +56,11 @@ function setRow(it, i, s, k) {
 
 function sumLine(it) {
   const bw = isBw(it.lift);
-  const reps = it.sets.map((s) => s.reps).join(' · ');
-  const kg = [...new Set(it.sets.map((s) => fmtKg(bw ? s.add || 0 : s.kg || 0)))];
-  const unit = bw ? (kg.some((x) => +x) ? `次 · +${kg.join('/')} kg` : '次') : `${kg.join('/')} kg`;
+  const p = tr.setsParts(it.sets, bw);
   const hard = it.sets.map((s, k) => (s.hard && !s.note ? k + 1 : 0)).filter(Boolean); // a set with its own words shows those instead
   const notes = it.sets.map((s) => s.note).filter(Boolean);
   const sub = [hard.length ? (hard.length === 1 && hard[0] === it.sets.length ? '最后一组吃力' : `第 ${hard.join('、')} 组吃力`) : '', ...notes.map((n) => `“${n}”`)].filter(Boolean).join('　');
-  return `<span class="sets">${reps}<small>${esc(unit)}</small></span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}`;
+  return `<span class="sets">${esc(p.reps)}${p.kg ? `<small>${esc(p.kg)}</small>` : ''}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}`;
 }
 
 function html() {
@@ -237,8 +235,8 @@ function preview() {
   const chip = (it) => {
     const bw = it.def ? it.def.bodyweight : tr.lift(it.lift).bodyweight;
     const top = Math.max(0, ...it.sets.map((s) => (bw ? s.add || 0 : s.kg || 0)));
-    const reps = it.sets.map((s) => s.reps), same = reps.every((x) => x === reps[0]);
-    const lbl = `${same ? `${it.sets.length}×${reps[0]}` : reps.join('/')}${bw ? (top ? ` +${fmtKg(top)}` : '') : ` · ${top ? fmtKg(top) : '?'} kg`}${it.sets.some((s) => s.hard) ? ' · 吃力' : ''}`;
+    const sp = tr.setsParts(it.sets, bw);
+    const lbl = `${sp.reps}${bw ? (sp.kg ? ` ${sp.kg}` : '') : top ? (sp.kg ? ` · ${sp.kg}` : '') : ' · ? kg'}${it.sets.some((s) => s.hard) ? ' · 吃力' : ''}`;
     return `<span class="pv-it">${esc(nameIn(it))}<small>${esc(lbl)}</small></span>`;
   };
   pv.innerHTML = (r.touched ? r.items.map(chip).join('') : '') + (r.unknown.length ? `<span class="pv-unk" title="没听懂">${esc(r.unknown.join(' '))}</span>` : '');

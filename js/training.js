@@ -71,15 +71,26 @@ export const topSet = (id, sets) => sets.reduce((best, s) => {
 export const volume = (id, sets) => sum(sets.map((s) => (lift(id).bodyweight ? s.reps : s.reps * (s.kg || 0))));
 
 // "5×5 · 102.5 kg", "4×10", "8/8/6 · 60 kg", "11/11/10/9 次"
+// Sets the way lifters write them: sets × reps. "4×11", "3×8 + 1×6"; the weight once when it is the same,
+// else with each group: "1×8 60 kg + 3×5 70 kg". Returns { reps, kg } so pages can size them differently.
+const kgTxt = (v) => String(Math.round((+v || 0) * 100) / 100);
+export function setsParts(sets, bodyweight) {
+  if (!sets?.length) return { reps: '', kg: '' };
+  const load = (s) => (bodyweight ? s.add || 0 : s.kg || 0);
+  const groups = [];
+  for (const s of sets) {
+    const g = groups.at(-1);
+    if (g && g.reps === s.reps && g.load === load(s)) g.n++;
+    else groups.push({ n: 1, reps: s.reps, load: load(s) });
+  }
+  const oneLoad = groups.every((g) => g.load === groups[0].load);
+  const w = (v) => (bodyweight ? (v ? `+${kgTxt(v)} kg` : '') : `${kgTxt(v)} kg`);
+  if (oneLoad) return { reps: groups.map((g) => `${g.n}×${g.reps}`).join(' + '), kg: w(groups[0].load) };
+  return { reps: groups.map((g) => `${g.n}×${g.reps}${w(g.load) ? ' ' + w(g.load) : ''}`).join(' + '), kg: '' };
+}
 export function setsLabel(id, sets) {
-  if (!sets?.length) return '';
-  const reps = sets.map((s) => s.reps);
-  const same = reps.every((r) => r === reps[0]);
-  const loads = sets.map((s) => setLoad(id, s));
-  const top = Math.max(...loads);
-  const repTxt = same ? `${sets.length}×${reps[0]}` : reps.join('/');
-  if (lift(id).bodyweight) return top > 0 ? `${repTxt} · +${top} kg` : same ? repTxt : `${repTxt} 次`;
-  return `${repTxt} · ${top} kg`;
+  const p = setsParts(sets, lift(id).bodyweight);
+  return [p.reps, p.kg].filter(Boolean).join(' · ');
 }
 
 // ---------- history queries ----------
