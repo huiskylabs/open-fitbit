@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>日晷 月</title><link rel="stylesheet" href="base.css"><link rel="stylesheet" href="dialstyle.css">
+<style>
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px 2px; margin-top: 14px; }
+.cal .h { text-align: center; font-size: 11px; color: var(--mut); }
+.cal .c { position: relative; text-align: center; }
+.cal .c svg { margin: 0 auto; }
+.cal .c .dn { position: absolute; left: 0; right: 0; top: 17px; font: 13px "Instrument Serif", serif; color: var(--ink2); }
+.cal .c.today .dn { color: var(--ink); font-weight: 700; }
+.cal .c .w { width: 5px; height: 5px; border-radius: 50%; background: var(--worse); margin: 1px auto 0; }
+.key { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; font-size: 12px; color: var(--ink2); }
+.key i { display: inline-block; width: 12px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: 3px; }
+</style></head><body>
+<div class="hd"><h1>运动 · 近 30 天</h1><span class="r">10月6日–11月4日</span></div>
+<div class="seg"><span>日</span><span>周</span><span class="on">月</span><span>3个月</span></div>
+<div class="row" style="margin-top:18px"><div><div class="k">运动了</div><div class="v">18<small>天</small></div><div class="n">力量 11 · 篮球 7</div></div><div><div class="k">平均睡着</div><div class="v">7:32</div><div class="n">每晚</div></div><div><div class="k">最晚入睡</div><div class="v">00:41</div><div class="n">10月18日 周六</div></div></div>
+<div class="cal" id="cal"></div>
+<div class="key"><span><i style="background:var(--light)"></i>睡眠</span><span><i style="background:var(--str)"></i>力量</span><span><i style="background:var(--ball)"></i>篮球</span><span><i style="background:var(--walk)"></i>散步</span><span><i style="background:var(--hr);height:1.5px"></i>心率</span><span><i style="background:var(--worse);width:5px;height:5px;border-radius:50%;vertical-align:1px"></i>比平时差</span></div>
+<p class="n" style="margin-top:10px;line-height:1.6">每个小表盘是一天，和今天页的大表盘一样：下面是夜里，上面是中午。橙点是感冒那三天：静息心率比正常范围高，也没运动。</p>
+<script type="module">
+import * as D from './data.js';
+import { makeDial, corona, COLORS } from './dialkit.js';
+import { tabs } from './tabs.js';
+const S = 50, c = S / 2;
+let h = '一二三四五六日'.split('').map((x) => `<div class="h">${x}</div>`).join('');
+const first = D.days[0].date, pad = (first.getDay() + 6) % 7;
+for (let i = 0; i < pad; i++) h += '<div></div>';
+D.days.forEach((d, i) => {
+  const K = makeDial({ cx: c, cy: c, mode: 'day' });
+  let g = `<circle cx="${c}" cy="${c}" r="${c - 1}" fill="none" stroke="var(--line)"/>`;
+  g += corona(K, d.hr, 17.5, 24, { lo: 50, hi: 165, id: 'k' + i, width: .9 });
+  const d0 = +d.date, d1 = d0 + 864e5;
+  for (const nn of [d.night, d.next]) if (nn) for (const s of nn.stages) { const a = Math.max(s.s, d0), b = Math.min(s.e, d1); if (b > a && s.type !== 'AWAKE') g += `<path d="${K.arc(a, b, 11.5, 15.5)}" fill="${COLORS[s.type]}"/>`; }
+  for (const e of d.ev) g += `<path d="${K.arc(e.s - 6e5, e.e + 6e5, 10, 17)}" fill="${COLORS[e.kind]}"/>`;
+  const today = i === D.days.length - 1;
+  if (today) g += `<circle cx="${c}" cy="${c}" r="${c - 1}" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`;
+  h += `<div class="c${today ? ' today' : ''}"><svg viewBox="0 0 ${S} ${S}" width="${S}" height="${S}">${g}</svg><div class="dn">${d.date.getDate() === 1 ? (d.date.getMonth() + 1) + '月' : d.date.getDate()}</div>${d.worse ? '<div class="w"></div>' : '<div style="height:6px"></div>'}</div>`;
+});
+document.getElementById('cal').innerHTML = h;
+document.body.insertAdjacentHTML('beforeend', tabs('运动'));
+</script></body></html>

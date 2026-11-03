@@ -74,3 +74,35 @@ export const nights = Array.from({ length: 30 }, (_, i) => {
 export const today = { sleepScore: 84, recovery: 78, steps: 11240, rhr: 58, hrv: 56, resp: 15.4, rhrRange: [56, 61], hrvRange: [39, 52], restingTrend: -1, activeMin: 112 };
 export const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 export const dur = (min) => { min = Math.round(min); const h = Math.floor(min / 60), m = min % 60; return h ? `${h} 小时 ${m} 分钟` : `${m} 分钟`; };
+
+// ---- 30 days, midnight to midnight, for the month of dials ----
+function dayEvents(date, r, sick) {
+  const wd = date.getDay(); const out = []; const t = (h, m) => { const d = new Date(date); d.setHours(h, m, 0, 0); return +d; };
+  if (sick) return out;
+  if ([1, 3, 5].includes(wd) && r() > .1) { const s = t(7, 2 + Math.round(r() * 14)); out.push({ kind: 'strength', s, e: s + (46 + r() * 12) * M }); }
+  if ([2, 5].includes(wd) && r() > .3) { const s = t(12, 20 + Math.round(r() * 20)); out.push({ kind: 'walk', s, e: s + (22 + r() * 18) * M }); }
+  if (wd === 4 && r() > .1) { const s = t(19, Math.round(r() * 12)); out.push({ kind: 'ball', s, e: s + (68 + r() * 20) * M }); }
+  if (wd === 6 && r() > .15) { const s = t(16, 20 + Math.round(r() * 30)); out.push({ kind: 'ball', s, e: s + (80 + r() * 30) * M }); }
+  return out;
+}
+export const days = nights.map((n, i) => {
+  const date = n.date; const r = rng(5000 + i);
+  const ev = i === nights.length - 1 ? events : dayEvents(date, r, n.sick);
+  const next = nights[i + 1];
+  // coarse heart rate every 4 minutes for the small dials
+  const hr = []; const d0 = +date, d1 = d0 + 864e5;
+  for (let u = d0; u < Math.min(d1, NOW); u += 4 * M) {
+    const inN = (x) => x && u >= x.bed && u < x.wake;
+    const nn = inN(n) ? n : inN(next) ? next : null;
+    let v;
+    if (nn) { const p = nn.hr[Math.round((u - nn.bed) / M)]; v = p ? p.v : 54; }
+    else {
+      const e = ev.find((x) => u >= x.s && u < x.e); const h = new Date(u).getHours();
+      v = e ? (e.kind === 'ball' ? 140 + r() * 25 : e.kind === 'strength' ? 100 + r() * 40 : 98 + r() * 8) : 64 + 6 * Math.sin((h - 9) / 3) + (r() - .5) * 10;
+      if (n.sick) v += 6;
+    }
+    hr.push({ t: u, v });
+  }
+  const sleepToday = (n.asleep);
+  return { date, night: n, next, ev, hr, sick: n.sick, asleep: sleepToday, worse: n.sick };
+});
