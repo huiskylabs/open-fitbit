@@ -1,7 +1,7 @@
 :root { --bg: #f3f1ea; --card: #fbfaf5; --ink: #16150f; --ink2: #5d5a50; --mut: #9a968a; --line: #dcd8cc;
-  --deep: #23308f; --light: #4b6fd6; --rem: #93b5f0; --awake: #d4cfc2; --hr: #d8452f; --str: #1d8a5f; --str2: #6fbf98; --ball: #7a45c9; --walk: #a6a08f; --worse: #e0702a; }
+  --deep: #3c3bb8; --light: #2f7fe8; --rem: #5cc3f0; --awake: #d4cfc2; --hr: #d8452f; --str: #1d8a5f; --str2: #6fbf98; --ball: #7a45c9; --walk: #a6a08f; --worse: #e0702a; --awake-strong: #8f8a7c; }
 :root[data-theme="dark"] { --bg: #0c0c0b; --card: #151513; --ink: #f1eee6; --ink2: #b3afa4; --mut: #77746b; --line: #2a2926;
-  --deep: #5b62f0; --light: #3d86f5; --rem: #7fc4f5; --awake: #3a3935; --hr: #ff6150; --str: #2fc787; --str2: #1d6b4c; --ball: #a678ff; --walk: #6f6b60; --worse: #ff8a3d; }
+  --deep: #6260e8; --light: #2f8cf5; --rem: #5ccbf5; --awake: #3a3935; --hr: #ff6150; --str: #2fc787; --str2: #1d6b4c; --ball: #a678ff; --walk: #6f6b60; --worse: #ff8a3d; --awake-strong: #8a877e; }
 body { background: var(--bg); color: var(--ink); padding: 54px 16px 110px; }
 .hd { display: flex; justify-content: space-between; align-items: baseline; }
 .hd h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .12em; }
