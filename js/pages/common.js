@@ -204,13 +204,11 @@ export function recoveryWhy(v, date) {
 export const clockDur = (min) => { min = Math.round(min || 0); return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`; };
 // the short name on a dial or a calendar day: 力量 / 篮球 / 步行…
 export const shortKind = (w) => (w.kind === 'strength' ? '力量' : kindLabel(w));
-// lifts as "卧推  8 · 8 · 8 · 6  70 kg"
+// lifts as "卧推  3×8 + 1×6  70 kg"
 export function lifts2(items) {
   return `<div class="lifts2">${items.map((it) => {
-    const lf = tr.lift(it.lift), reps = it.sets.map((s) => s.reps).join(' · ');
-    const kg = [...new Set(it.sets.map((s) => (lf.bodyweight ? s.add || 0 : s.kg || 0)))];
-    const unit = lf.bodyweight ? (kg.some(Boolean) ? `次 · +${kg.join('/')} kg` : '次') : `${kg.join('/')} kg`;
-    return `<div class="lift2"><b>${esc(lf.name)}</b><span class="sets">${reps}<small>${unit}</small></span><span class="n"></span></div>`;
+    const lf = tr.lift(it.lift), p = tr.setsParts(it.sets, lf.bodyweight);
+    return `<div class="lift2"><b>${esc(lf.name)}</b><span class="sets">${esc(p.reps)}${p.kg ? `<small>${esc(p.kg)}</small>` : ''}</span><span class="n"></span></div>`;
   }).join('')}</div>`;
 }
 // one workout in a list: a colored disc with its name, when, the key numbers, minutes
