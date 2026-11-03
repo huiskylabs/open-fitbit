@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>日晷 训练</title><link rel="stylesheet" href="base.css"><link rel="stylesheet" href="dialstyle.css"></head><body>
-<div class="hd"><h1>力量 · 今天早上</h1><span class="r">07:11–08:03</span></div>
+<div class="hd"><h1>运动 · 力量 · 今天早上</h1><span class="r">07:11–08:03</span></div>
 <svg id="dial" viewBox="0 0 393 392" width="393" height="392" style="margin:4px -16px 0"></svg>
 <div class="n" style="margin:-2px 0 14px;text-align:center">红线是心率，红点是每组的最高值。每一瓣是 app 认出的一组。</div><div style="font-size:17px;font-weight:600">练的是这些吗？</div>
 <div id="lifts"></div>
@@ -51,5 +51,5 @@ const peak = Math.round(Math.max(...D.dayHr.filter((p) => p.t >= e.s && p.t < e.
 g += `<text class="cn" x="${cx}" y="${cy - 30}" text-anchor="middle">一共</text><text class="big" x="${cx}" y="${cy + 18}" text-anchor="middle" style="font-size:58px">8<tspan class="cn" dx="4">组</tspan></text><text class="cn" x="${cx}" y="${cy + 38}" text-anchor="middle">最高 ${peak} bpm</text>`;
 document.getElementById('dial').innerHTML = g;
 document.getElementById('lifts').innerHTML = e.lifts.map((l) => `<div class="lift"><b>${l.n}</b><span class="sets">${l.sets.join(' · ')}<small>${l.kg ? l.kg + ' kg' : '次'}</small></span><span class="n">${l.note}</span></div>`).join('');
-document.body.insertAdjacentHTML('beforeend', tabs('力量'));
+document.body.insertAdjacentHTML('beforeend', tabs('运动'));
 </script></body></html>
