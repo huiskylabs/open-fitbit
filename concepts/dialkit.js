@@ -4,12 +4,12 @@ const TAU = Math.PI * 2;
 export const COLORS = { DEEP: 'var(--deep)', LIGHT: 'var(--light)', REM: 'var(--rem)', AWAKE: 'var(--awake)', strength: 'var(--str)', walk: 'var(--walk)', ball: 'var(--ball)' };
 const hoursOf = (t) => { const d = new Date(t); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
 
-export function makeDial({ cx, cy, mode, from, to }) {
+export function makeDial({ cx, cy, mode, from, to, gap = 0 }) {
   let ang;
   if (mode === 'day') ang = (t) => (hoursOf(t) / 24) * TAU + Math.PI;
   else if (mode === 'night') ang = (t) => ((hoursOf(t) % 12) / 12) * TAU;
-  else ang = (t) => ((t - from) / (to - from)) * TAU;
-  const span = mode === 'day' ? 864e5 : mode === 'night' ? 432e5 : to - from;
+  else ang = (t) => gap / 2 + ((t - from) / (to - from)) * (TAU - gap);
+  const span = mode === 'day' ? 864e5 : mode === 'night' ? 432e5 : (to - from) * TAU / (TAU - gap);
   const pt = (a, r) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
   const P = (a, r) => pt(a, r).map((v) => v.toFixed(2)).join(',');
   const arc = (t0, t1, r0, r1) => {

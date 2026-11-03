@@ -17,11 +17,13 @@ const dim = (k) => (sel && sel !== k ? ' opacity=".22"' : '');
 let g = '';
 g += `<circle cx="${cx}" cy="${cy}" r="128" fill="none" stroke="var(--line)"/>`;
 g += K.ticks({ r: 128, n: 24, every: 6, label: true, lr: 141, fmt: (i) => i });
-// heart rate
+// heart rate, with reference rings at 60 / 100 / 150 bpm labelled along the now hand
+const rHr = (v) => 86 + (Math.max(45, Math.min(175, v)) - 45) / 130 * 38;
+for (const v of [60, 120]) { g += `<circle cx="${cx}" cy="${cy}" r="${rHr(v)}" fill="none" stroke="var(--mut)" stroke-width=".6" stroke-dasharray="1.5 3" opacity=".8"/>`; const [x, y] = K.pt(K.ang(end) + .09, rHr(v)); g += `<text x="${x}" y="${y + 4}" text-anchor="middle" class="halo" style="font-size:12px;fill:var(--ink2)">${v}</text>`; }
 const hr = smooth([...D.last.hr, ...D.dayHr].filter((p) => p.t >= start), 3);
 const selEv = evs.find((e) => e.kind === sel);
-g += `<g${sel ? ' opacity=".35"' : ''}>${corona(K, hr, 88, 120)}</g>`;
-if (selEv) g += corona(K, hr.filter((p) => p.t >= selEv.s && p.t < selEv.e), 88, 120, { id: 'cg2', fill: true, width: 1.8 });
+g += `<g${sel ? ' opacity=".35"' : ''}>${corona(K, hr, 86, 124)}</g>`;
+if (selEv) g += corona(K, hr.filter((p) => p.t >= selEv.s && p.t < selEv.e), 86, 124, { id: "cg2", fill: true, width: 1.8 });
 // stages and workouts
 for (const s of D.last.stages) g += `<path d="${K.arc(s.s, s.e, s.type === 'DEEP' ? 66 : 71, 82)}" fill="${COLORS[s.type]}"${dim('sleep')}/>`;
 for (const e of D.events) g += `<path d="${K.arc(e.s, e.e, sel === e.kind ? 62 : 66, sel === e.kind ? 86 : 82)}" fill="${COLORS[e.kind]}"${dim(e.kind)}/>`;
