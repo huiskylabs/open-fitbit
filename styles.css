@@ -515,3 +515,26 @@ svg.mini .mempty { font-size: 14px; fill: var(--muted); }
 .cbtns .mic::before { content: none; }
 #open-settings { position: relative; }
 #open-settings.dot::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--text); }
+
+/* training sheet: read view, tap a lift to change it */
+.ed-list { display: grid; gap: 0; margin-bottom: 6px; }
+.ed-item { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: baseline; gap: 4px 10px; width: 100%; margin: 0; padding: 14px 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; color: var(--text); text-align: left; font: inherit; }
+.ed-item:last-child { border-bottom: 1px solid var(--line); }
+.ed-item > b { font-size: 16px; font-weight: 600; }
+.ed-item .sets { font: 26px var(--serif); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-item .sets small { margin-left: 6px; font: 13px -apple-system, "PingFang SC", sans-serif; color: var(--text-2); letter-spacing: 0; }
+.ed-item .sub { grid-column: 2; font-size: 13px; color: var(--text-2); }
+.ed-item.open { display: block; padding: 12px 0; }
+.ed-item.open .ed-ih { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.ed-row { display: grid; grid-template-columns: 18px 1fr 1fr 52px 32px; align-items: center; gap: 8px; padding: 4px 0; }
+.ed-row .n { font-size: 13px; color: var(--muted); }
+.ed-row label { display: flex; align-items: baseline; gap: 4px; border-bottom: 1px solid var(--line); }
+.ed-row input { width: 100%; min-width: 0; padding: 6px 0; border: 0; background: none; color: var(--text); font: 24px var(--serif); outline: none; }
+.ed-row label span { font-size: 12px; color: var(--muted); }
+.ed-row .hard { height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 15px; background: none; font-size: 12px; color: var(--muted); }
+.ed-row .hard.on { border-color: var(--text); background: var(--text); color: var(--bg); }
+.ed-row .x { height: 36px; padding: 0; border: 0; background: none; font-size: 20px; color: var(--muted); }
+.ed-addl { display: block; margin: 8px 0 14px; }
+.ed-bar.cbtns { display: flex; gap: 10px; }
+.ed-bar.cbtns .btn.pri { flex: 1; }
+.ed-bar .mic::before { content: none; }

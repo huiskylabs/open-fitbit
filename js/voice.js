@@ -1,8 +1,8 @@
 // Voice → sets.
 // Speech → text is the iPhone's own: the microphone key on the keyboard in the home-screen app (Safari's speech
 // recognition is not available there), or Safari's speech recognition when the page runs in Safari.
-// Text → sets happens on the phone (sayparse.js). Only what the phone can't place goes to an AI model,
-// and only when a key is filled in: OpenRouter (sk-or-…) or Anthropic (sk-ant-…). The key stays in
+// Text → sets: when a key is filled in (OpenRouter sk-or-… or Anthropic sk-ant-…), the AI model reads it;
+// without a key, or when the AI call fails, the phone's own parser does (sayparse.js). The key stays in
 // this phone's localStorage.
 import * as tr from './training.js';
 
@@ -103,7 +103,7 @@ const SCHEMA = {
 };
 
 const SYSTEM = `You turn what the user said about one strength-training session into a structured log.
-The text comes from Chinese speech recognition, so expect homophones and misheard words (e.g. "饮体" means 引体).
+The text comes from Chinese speech recognition, so expect homophones and misheard words (e.g. "饮体" means 引体, "卤肉" / "握推" mean 卧推, "身蹲" means 深蹲). Never log a word that only sounds like an exercise as a new exercise; map it to the exercise it most likely is.
 
 The user message is JSON with:
 - lifts: the user's known exercises, id → Chinese name.
