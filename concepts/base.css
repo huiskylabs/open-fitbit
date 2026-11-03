@@ -1,0 +1,14 @@
+@font-face { font-family: "Instrument Serif"; src: url(../fonts/instrument-serif-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Instrument Serif"; font-style: italic; src: url(../fonts/instrument-serif-latin-400-italic.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Plex Mono"; font-weight: 300; src: url(../fonts/ibm-plex-mono-latin-300-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Plex Mono"; font-weight: 400; src: url(../fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Plex Mono"; font-weight: 500; src: url(../fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url(../fonts/barlow-condensed-latin-600-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 800; src: url(../fonts/barlow-condensed-latin-800-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: 15px/1.45 -apple-system, "PingFang SC", system-ui, sans-serif; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+svg { display: block; overflow: visible; }
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; display: flex; padding: 6px 4px 22px; }
+.tabs span { flex: 1; text-align: center; font-size: 11px; }
+.tabs span b { display: block; width: 22px; height: 22px; margin: 0 auto 3px; border-radius: 6px; border: 2px solid currentColor; }

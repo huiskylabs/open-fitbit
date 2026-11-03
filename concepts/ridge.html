@@ -1,0 +1,85 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>山脊</title><link rel="stylesheet" href="base.css">
+<style>
+:root { --bg: #07080c; --ink: #f1efe8; --ink2: #a9a79f; --mut: #66655f; --line: #22242b; --sea0: #7fd4f2; --sea1: #3a63d8; --sea2: #1b1f7a; --hr: #ff6a55; }
+body { background: var(--bg); color: var(--ink); padding: 54px 16px 110px; }
+.eyebrow { font: 500 11px "Plex Mono", ui-monospace, monospace; letter-spacing: .2em; color: var(--mut); }
+.big { display: flex; align-items: baseline; gap: 4px; margin-top: 6px; font: 300 64px/1 "Plex Mono", ui-monospace, monospace; letter-spacing: -3px; }
+.big small { font: 14px -apple-system, "PingFang SC", sans-serif; letter-spacing: 0; color: var(--ink2); margin: 0 8px 0 4px; }
+.sub { margin-top: 8px; font-size: 13px; color: var(--ink2); }
+.sub b { color: var(--ink); font-weight: 600; }
+svg text { font: 10px "Plex Mono", ui-monospace, monospace; fill: var(--mut); }
+svg text.cn { font: 12px -apple-system, "PingFang SC", sans-serif; fill: var(--ink2); }
+svg text.halo { paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
+svg text.cnb { font: 600 12px -apple-system, "PingFang SC", sans-serif; fill: var(--ink); }
+.sec { margin-top: 34px; }
+.sec h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+.sec p { margin: 0 0 12px; font-size: 13px; color: var(--ink2); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); margin-top: 10px; }
+.stats div { padding: 12px 0 0; }
+.stats .k { font-size: 11px; color: var(--mut); letter-spacing: .1em; }
+.stats .v { font: 300 26px "Plex Mono", ui-monospace, monospace; letter-spacing: -1px; margin-top: 2px; }
+.stats .v small { font: 11px -apple-system, "PingFang SC", sans-serif; color: var(--ink2); letter-spacing: 0; margin-left: 2px; }
+.tabs { background: rgba(7, 8, 12, .92); border-top: 1px solid var(--line); color: var(--mut); }
+.tabs span:nth-child(2) { color: var(--ink); }
+</style></head><body>
+<div class="eyebrow">昨晚 · 11月3日晚</div>
+<div class="big">7<small>小时</small>03<small>分钟</small></div>
+<div class="sub">23:26 潜入，06:44 浮出 · 深睡 <b>1 小时 18 分钟</b>，都在前半夜</div>
+<svg id="dive" width="361" height="250" viewBox="0 0 361 250" style="margin-top:18px"></svg>
+<div class="sec"><h2>30 个夜晚的心率</h2><p>每一条是一晚，越靠下越近。感冒那三晚整条抬高了。</p>
+<svg id="ridge" width="361" height="445" viewBox="0 0 361 445"></svg></div>
+<div class="stats"><div><div class="k">30 晚平均</div><div class="v">7:32<small>睡着</small></div></div><div><div class="k">最低心率</div><div class="v">50<small>bpm</small></div></div><div><div class="k">平均入睡</div><div class="v">23:41</div></div></div>
+<nav class="tabs"><span><b></b>今天</span><span><b></b>睡眠</span><span><b></b>运动</span><span><b></b>力量</span><span><b></b>心率</span></nav>
+<script type="module">
+import * as D from './data.js';
+// ---- dive profile: the surface is awake, the deeper you go the deeper the sleep ----
+{
+  const n = D.last, W = 361, top = 34, H = 190, L = 0, R = W;
+  const depth = { AWAKE: 0, REM: .34, LIGHT: .62, DEEP: 1 };
+  const x = (t) => L + ((t - n.bed) / (n.wake - n.bed)) * (R - L), y = (dv) => top + dv * (H - top - 10);
+  // depth per minute, smoothed, so it reads as one dive rather than a bar chart
+  const raw = [];
+  for (let t = n.bed; t < n.wake; t += 60e3) raw.push([t, depth[n.stages.find((q) => t >= q.s && t < q.e)?.type || 'LIGHT']]);
+  const pts = raw.map(([t], i) => { let s = 0, w = 0; for (let j = -7; j <= 7; j++) { const q = raw[i + j]; if (!q) continue; const k = Math.exp(-(j * j) / 18); s += q[1] * k; w += k; } return [x(t), y(s / w)]; });
+  const d = `M${x(n.bed)},${top}` + pts.map(([a, b]) => `L${a.toFixed(1)},${b.toFixed(1)}`).join('');
+  let g = `<defs><linearGradient id="sea" x1="0" y1="${top}" x2="0" y2="${H}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="var(--sea0)" stop-opacity=".9"/><stop offset=".55" stop-color="var(--sea1)"/><stop offset="1" stop-color="var(--sea2)"/></linearGradient>
+  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity=".35"/></linearGradient><mask id="m"><rect width="${W}" height="${H + 20}" fill="url(#fade)"/></mask></defs>`;
+  // depth guides
+  for (const [k, name] of [['REM', 'REM'], ['LIGHT', '浅睡'], ['DEEP', '深睡']]) g += `<line x1="0" x2="${W}" y1="${y(depth[k])}" y2="${y(depth[k])}" stroke="var(--line)" stroke-dasharray="1 4"/><text class="cn" x="${W}" y="${y(depth[k]) - 4}" text-anchor="end">${name}</text>`;
+  g += `<line x1="0" x2="${W}" y1="${top}" y2="${top}" stroke="var(--ink2)" stroke-width=".8"/><text class="cn" x="${W}" y="${top - 6}" text-anchor="end">清醒</text>`;
+  g += `<path d="${d}L${W},${top}Z" fill="url(#sea)" mask="url(#m)"/><path d="${d}" fill="none" stroke="var(--sea0)" stroke-width="1.4"/>`;
+  // heart rate rides on the surface
+  const hy = (v) => top - 8 - (v - 46) * 1.1;
+  g += `<path d="${n.hr.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${hy(p.v).toFixed(1)}`).join('')}" fill="none" stroke="var(--hr)" stroke-width="1" opacity=".9"/>`;
+  const lo = n.hr.reduce((a, p) => (p.v < a.v ? p : a));
+  g += `<circle cx="${x(lo.t)}" cy="${hy(lo.v)}" r="2.5" fill="var(--hr)"/><text class="halo" x="${x(lo.t) + 6}" y="${hy(lo.v) + 12}" style="fill:var(--hr)">${Math.round(lo.v)} bpm</text>`;
+  // deepest point
+  const deep = n.stages.filter((s) => s.type === 'DEEP').sort((a, b) => b.e - b.s - (a.e - a.s))[0];
+  g += `<text class="cnb" x="${x((deep.s + deep.e) / 2)}" y="${y(1) + 18}" text-anchor="middle">最深 ${D.hm(deep.s)}–${D.hm(deep.e)}</text>`;
+  for (const h of [1, 3, 5]) { const t = new Date(n.bed); t.setDate(t.getDate() + 1); t.setHours(h, 0, 0, 0); g += `<text x="${x(+t)}" y="${H + 30}" text-anchor="middle">${String(h).padStart(2, '0')}:00</text>`; }
+  g += `<text x="0" y="${H + 30}">${D.hm(n.bed)}</text><text x="${W}" y="${H + 30}" text-anchor="end">${D.hm(n.wake)}</text>`;
+  document.getElementById('dive').innerHTML = g;
+}
+// ---- ridgeline: 30 nights of heart rate, aligned by clock time ----
+{
+  const W = 361, L = 38, R = W, step = 11.5; let labels = '';
+  const t0 = (n) => { const d = new Date(n.date); d.setDate(d.getDate() - 1); d.setHours(22, 30, 0, 0); return +d; };
+  const span = 9.5 * 36e5;
+  const x = (n, t) => L + ((t - t0(n)) / span) * (R - L);
+  let g = '';
+  D.nights.forEach((n, i) => {
+    const yb = 60 + i * step;
+    const sm = n.hr.filter((_, j) => j % 3 === 0).map((p, j, a) => { const w = a.slice(Math.max(0, j - 3), j + 4); return { t: p.t, v: w.reduce((s, q) => s + q.v, 0) / w.length }; });
+    const pts = sm.map((p) => [x(n, p.t), Math.min(yb, yb - (p.v - 47) * 2.8)]);
+    const d = `M${pts[0][0]},${yb}` + pts.map(([a, b]) => `L${a.toFixed(1)},${b.toFixed(1)}`).join('') + `L${pts.at(-1)[0]},${yb}Z`;
+    const lastN = i === D.nights.length - 1;
+    g += `<path d="${d}" fill="var(--bg)"/><path d="${pts.map(([a, b], j) => `${j ? 'L' : 'M'}${a.toFixed(1)},${b.toFixed(1)}`).join('')}" fill="none" stroke="${lastN ? 'var(--hr)' : n.sick ? 'var(--ink)' : 'var(--ink2)'}" stroke-width="${lastN ? 1.6 : n.sick ? 1.2 : .8}" stroke-linejoin="round"/>`;
+    const dd = new Date(n.date); dd.setDate(dd.getDate() - 1);
+    if (i % 7 === 1 || lastN) labels += `<text x="0" y="${yb - 6}" ${lastN ? 'style="fill:var(--hr)"' : ''}>${lastN ? '昨晚' : `${dd.getMonth() + 1}/${dd.getDate()}`}</text>`;
+    if (n.sick && !D.nights[i - 1].sick) labels += `<text class="cnb halo" x="${W}" y="${yb - 52}" text-anchor="end">感冒，心率高 6 bpm</text>`;
+  });
+  for (const [h, lab] of [[23, '23:00'], [26, '02:00'], [29, '05:00'], [31.5, '07:30']]) { const xx = L + ((h - 22.5) / 9.5) * (R - L); g += `<text x="${xx}" y="440" text-anchor="middle">${lab}</text>`; }
+  document.getElementById('ridge').innerHTML = g + labels;
+}
+</script></body></html>
