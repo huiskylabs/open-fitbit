@@ -317,7 +317,6 @@ export function daysToScan() {
     const key = ymd(d);
     const last = st.scanned[key];
     if (last && last > +addDays(d, 1) + 3600e3) continue;
-    if (i === 0 && last && Date.now() - last < 20 * 60e3) continue;
     out.push(d);
   }
   return out;

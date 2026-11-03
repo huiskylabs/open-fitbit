@@ -459,12 +459,15 @@ function bind() {
     if (Math.abs(dx) > 70 && Math.abs(dy) < 45 && dt < 700) nav(dx > 0 ? 1 : -1);
   }, { passive: true });
 
-  document.addEventListener('visibilitychange', () => {
+  // every time the app comes back to the front, pull the latest (only skips a sync from the last few seconds)
+  const resume = () => {
     if (document.hidden) return;
     if (S.dayKey !== ymd(today()) && S.model) { S.v = data.derive(S.model); S.dayKey = ymd(today()); render(); }
-    if (!S.model || Date.now() - (S.model.syncedAt || 0) > 10 * 60e3) syncNow().then(backupCheck);
+    if (!S.model || Date.now() - (S.model.syncedAt || 0) > 15e3) syncNow().then(backupCheck);
     else if (drive.status().err) backupCheck(); // e.g. just came back from turning on the Drive API
-  });
+  };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('pageshow', (e) => { if (e.persisted) resume(); });
 }
 
 async function afterLogin() {
