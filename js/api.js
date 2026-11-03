@@ -1,5 +1,5 @@
 // Google Health API v4 client and normalization into the small records the app stores.
-import { accessToken } from './auth.js';
+import { accessToken, forget, healthRefused } from './auth.js';
 import { ymd, dateObj, fromDateObj, secs, addDays, limiter } from './util.js';
 
 const BASE = 'https://health.googleapis.com/v4/users/me/';
@@ -10,19 +10,24 @@ export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }
 
-async function call(path, { method = 'GET', body } = {}, attempt = 0) {
-  const tok = await accessToken();
+async function call(path, { method = 'GET', body } = {}, attempt = 0, renewed = false) {
+  const tok = await accessToken('health');
   const r = await run(() => fetch(BASE + path, {
     method,
     headers: { Authorization: 'Bearer ' + tok, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   }));
-  if ((r.status === 429 || r.status >= 500) && attempt < 3) { await wait(800 * 2 ** attempt); return call(path, { method, body }, attempt + 1); }
+  if ((r.status === 429 || r.status >= 500) && attempt < 3) { await wait(800 * 2 ** attempt); return call(path, { method, body }, attempt + 1, renewed); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const raw = JSON.stringify(j);
     if (/ACCOUNT_NOT_LINKED/.test(raw)) throw new ApiError('Google Health 账号还没有关联 Fitbit：先在手机上的 Google Health app 里登录并完成迁移', r.status);
-    if (r.status === 401) throw new ApiError('NOT_SIGNED_IN', 401);
+    // the token carries a scope from outside Google Health (e.g. Drive): needs a Fitbit-only sign-in
+    if (r.status === 403 && /DISALLOWED_OAUTH_SCOPES|disallowed OAuth scope/i.test(raw)) throw new ApiError(healthRefused(), 403);
+    if (r.status === 401) {
+      if (!renewed) { forget('health'); return call(path, { method, body }, attempt, true); }
+      throw new ApiError('RECONNECT', 401);
+    }
     throw new ApiError(`API ${r.status}：${j.error?.message || r.statusText}`, r.status);
   }
   return j;

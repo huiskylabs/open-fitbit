@@ -36,7 +36,8 @@
 - `googlehealth.health_metrics_and_measurements.readonly`
 - `drive.file`（训练记录备份；只能看到这个 app 自己建的那一个备份文件）
 
-训练记录不会写回 Google Health。
+Google Health API 只接受只带 Google Health 权限的令牌（混进 Drive 权限会返回 403 `DISALLOWED_OAUTH_SCOPES`），
+所以 app 给读 Fitbit 数据和备份各用一个令牌，每个令牌只带自己需要的权限。训练记录不会写回 Google Health。
 
 ## 安装步骤
 
@@ -50,8 +51,8 @@
    主屏幕 app 里 iOS 不让网页直接用语音识别，所以用键盘听写，它就是 iPhone 自带的语音输入。用 Safari 打开网页时可以按住按钮说。
    常见说法（动作、重量、组数、每组次数、“最后一组很吃力”、“第二组 95”、“没练硬拉”、“再加一组引体”）都在手机上直接读懂。
    可选：设置 → 语音记录 → 填 OpenRouter（`sk-or-…`）或 Anthropic（`sk-ant-…`）的密钥，选 Haiku（便宜）或 Sonnet。之后手机读不懂的句子会交给模型。
-6. **训练记录备份到 Google Drive**（默认就开着）：在 Google Cloud 项目里启用一次 **Google Drive API**（没启用时 app 顶部会提示，点“去启用”直接到那个页面），
-   再点 app 顶部的“授权”同意一次。之后每次保存训练都会更新 Drive 里的“我的健康 训练记录备份.json”；
+6. **训练记录备份到 Google Drive**（默认就开着）：在 Google Cloud 项目里启用一次 **Google Drive API**（没启用时 app 顶部会提示，点“去启用”直接到那个页面）。
+   连接 Fitbit 时 Google 会一起问 Drive 权限，勾上就行；没勾的话 app 顶部会提示“授权”。之后每次保存训练都会更新 Drive 里的“我的健康 训练记录备份.json”；
    换手机后连接 Fitbit，会自动从备份恢复。设置里也可以随时导出 JSON 文件。
 7. **保持一直连着**：Google 项目在“测试”状态下登录令牌 7 天过期，到时 app 顶部会提示，点“重新连接”即可（手机上的数据不会丢）。
    想不再过期：Google Cloud → Google Auth Platform → Audience → **Publish app**（不用提交审核），然后在 app 里重新连接一次。

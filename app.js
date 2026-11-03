@@ -32,7 +32,7 @@ const S = {
   tab: PAGES[pref.get('tab')] ? pref.get('tab') : 'today',
   range: SIZE[pref.get('range')] ? pref.get('range') : 'w',
   offset: 0,
-  demo: true, expired: false, model: null, v: null, syncing: false, err: '', focus: null, dayKey: ymd(today()),
+  demo: true, expired: false, reconnect: '', model: null, v: null, syncing: false, err: '', focus: null, dayKey: ymd(today()),
 };
 
 // ---------- render ----------
@@ -55,12 +55,17 @@ function header(per) {
 
 function banner() {
   const b = $('#banner');
+  const signed = !S.demo && auth.isSignedIn();
+  const ask = signed ? drive.ask() : '';
   let h = '';
   if (S.demo) h = '现在看到的是示例数据 <button data-act="settings">连接我的 Fitbit</button>';
   else if (S.expired) h = '登录过期了（测试模式每 7 天一次）<button data-act="login">重新连接</button>';
+  else if (S.reconnect === 'REVOKE') h = 'Google Health 不接受这次登录。先在 Google 账号里移除这个 app 的访问权限，再重新连接。<a class="bn" href="https://myaccount.google.com/connections" target="_blank" rel="noopener">去移除</a> <button data-act="login">重新连接</button>';
+  else if (S.reconnect) h = '要重新连接一次 Fitbit，同步才能继续 <button data-act="login">重新连接</button>';
   else if (S.err) h = `<span class="warn">${esc(S.err)}</span> <button data-act="sync">重试</button>`;
-  else if (auth.isSignedIn() && !drive.granted()) h = '训练记录自动备份到 Google Drive，还差授权一次 <button data-act="login">授权</button>';
-  else if (auth.isSignedIn() && drive.status().kind === 'disabled') h = `备份还差一步：在 Google Cloud 里启用 Drive API <a class="bn" href="${esc(drive.status().link)}" target="_blank" rel="noopener">去启用</a>`;
+  else if (ask === 'first') h = '训练记录自动备份到 Google Drive，还差授权一次 <button data-act="drive-auth">授权</button>';
+  else if (ask === 'again') h = 'Google Drive 备份要重新授权一次 <button data-act="drive-auth">授权</button>';
+  else if (signed && drive.status().kind === 'disabled') h = `备份还差一步：在 Google Cloud 里启用 Drive API <a class="bn" href="${esc(drive.status().link)}" target="_blank" rel="noopener">去启用</a>`;
   b.innerHTML = h;
   b.hidden = !h;
 }
@@ -142,16 +147,18 @@ async function syncNow({ force = false } = {}) {
   try {
     S.model = await data.sync(S.model, { force });
     S.v = data.derive(S.model);
-    S.expired = false;
+    S.expired = false; S.reconnect = '';
     S.dayKey = ymd(today());
     render({ keepScroll: true });
     await scan();
   } catch (e) {
     console.warn(e);
     if (!S.demo && !auth.isSignedIn()) S.expired = true;
+    else if (e.message === 'RECONNECT' || e.message === 'REVOKE') S.reconnect = e.message;
     else if (e.message !== 'NOT_SIGNED_IN') S.err = e.message;
   }
-  S.syncing = false; syncUi(); banner();
+  S.syncing = false; syncUi();
+  if (S.v) banner(); else render(); // no data yet: drop "正在读取数据…"
 }
 
 // Look for strength sessions in today's and the last two days' heart rate.
@@ -201,7 +208,8 @@ async function confirmPending(p) {
 function backupState(ds) {
   if (S.demo) return '连接 Fitbit 后自动开始';
   if (!auth.isSignedIn()) return '重新连接后继续';
-  if (!drive.granted()) return '还差授权一次';
+  const a = drive.ask();
+  if (a) return a === 'again' ? '要重新授权一次' : '还差授权一次';
   if (ds.kind === 'disabled') return '还差启用 Drive API';
   if (ds.at) return `上次 ${ago(ds.at)}`;
   return tr.get().sessions.length ? '等待第一次备份' : '有训练记录后开始';
@@ -214,7 +222,7 @@ async function backupCheck() {
   checking = true;
   try {
     if (!tr.get().sessions.length) await autoRestore();
-    else if (drive.behind(tr.get())) await drive.backup(tr.get()).catch((e) => console.warn('backup', e));
+    else if (drive.behind(tr.get()) || drive.status().err) await drive.backup(tr.get()).catch((e) => console.warn('backup', e));
   } finally { checking = false; }
   banner();
   if ($('.settings')) openSettings();
@@ -237,7 +245,7 @@ function openSettings() {
   const devs = S.demo ? [] : S.model?.devices || [];
   ui.openSheet(`<h3>设置</h3>
     <section class="set-g"><h4>Fitbit 连接</h4>
-      ${signed ? `<div class="set-row"><span>已连接 ✓</span><small>测试模式下大约 ${left ?? 7} 天后要重新连接</small></div>
+      ${signed ? `<div class="set-row"><span>${S.reconnect ? '要重新连接一次' : '已连接 ✓'}</span><small>${S.reconnect ? '' : `测试模式下大约 ${left ?? 7} 天后要重新连接`}</small></div>
         <div class="btns"><button class="btn ghost" data-act="login">重新连接</button><button class="btn ghost danger" data-act="logout">断开</button></div>` : ''}
       <details ${signed ? '' : 'open'}><summary>Client ID 和 Secret</summary>
         <label class="field"><span>Client ID</span><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(c.clientId || '')}" placeholder="xxxx.apps.googleusercontent.com"></label>
@@ -265,7 +273,7 @@ function openSettings() {
       <div class="set-row"><span>自动备份到你的 Google Drive</span><small>${esc(backupState(ds))}</small></div>
       ${ds.err && ds.kind !== 'net' ? `<div class="note"><span class="warn">${esc(ds.err)}</span></div>` : ''}
       ${!S.demo && signed && ds.kind === 'disabled' ? `<a class="btn pri" href="${esc(ds.link)}" target="_blank" rel="noopener">去 Google Cloud 启用 Drive API</a>` : ''}
-      ${!S.demo && signed ? (drive.granted() ? '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>' : '<button class="btn pri" data-act="login">授权 Google Drive</button>') : ''}
+      ${!S.demo && signed ? (drive.ask() ? `<button class="btn pri" data-act="drive-auth">${drive.ask() === 'again' ? '重新授权' : '授权'} Google Drive</button>` : '<div class="btns"><button class="btn ghost" data-act="backup-now">立即备份</button><button class="btn ghost" data-act="restore">从备份恢复</button></div>') : ''}
       <button class="btn ghost" data-act="export">导出训练记录（JSON）</button>
     </section>
     <section class="set-g"><h4>训练建议</h4>
@@ -275,7 +283,7 @@ function openSettings() {
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
       <button class="btn ghost" data-act="resync"${S.demo ? ' disabled' : ''}>重新下载最近 120 天</button>
     </section>
-    <div class="note center">我的健康 v2.1 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
+    <div class="note center">我的健康 v2.2 · 数据只在这台手机和你自己的 Google 账号里</div>`, { cls: 'settings' });
 }
 
 async function settingsChange(e) {
@@ -299,7 +307,7 @@ function exportJson() {
   setTimeout(() => URL.revokeObjectURL(a.href), 30e3);
 }
 
-const login = () => auth.startLogin();
+const login = () => auth.startLogin('health');
 
 // ---------- events ----------
 async function onAction(el) {
@@ -336,6 +344,7 @@ async function onAction(el) {
     case 'settings': openSettings(); break;
     case 'sync': syncNow(); break;
     case 'login': if (auth.isConfigured()) await login(); else openSettings(); break;
+    case 'drive-auth': if (auth.isConfigured()) await auth.startLogin('drive'); else openSettings(); break;
     case 'save-login': {
       const clientId = $('#cid').value.trim(), clientSecret = $('#csec').value.trim();
       if (!clientId || !clientSecret) { ui.toast('请填写 Client ID 和 Client Secret'); break; }
@@ -344,14 +353,16 @@ async function onAction(el) {
       break;
     }
     case 'paste-code': {
-      await auth.handleRedirect($('#paste-url').value.trim());
+      const back = await auth.handleRedirect($('#paste-url').value.trim());
+      if (!back) { ui.toast('这个网址里没有登录结果，请复制完整的网址'); break; }
       ui.closeSheet();
-      await afterLogin();
+      if (back === 'drive') { ui.toast('Google Drive 备份已开启'); await backupCheck(); } else await afterLogin();
       break;
     }
     case 'logout':
       if (!confirm('断开后手机上的 Fitbit 数据会清掉（训练记录保留）。继续？')) break;
       auth.signOut();
+      S.reconnect = '';
       await data.clearAll();
       ui.closeSheet();
       await useDemo();
@@ -439,6 +450,7 @@ function bind() {
 }
 
 async function afterLogin() {
+  ui.toast('已连接 Fitbit');
   await useReal();
   S.v = S.model ? data.derive(S.model) : null;
   render();
@@ -461,8 +473,8 @@ async function autoRestore() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('c:')).forEach((k) => localStorage.removeItem(k)); } catch {} // v1 cache
   editor.setHooks({ summarize, done: () => render({ keepScroll: true }), openSettings });
   tr.setOnSave(() => { if (!S.demo) drive.backupSoon(() => tr.get(), 4000, banner); });
-  let justLoggedIn = false;
-  try { justLoggedIn = await auth.handleRedirect(); } catch (e) { S.err = e.message; }
+  let back = false; // just came back from Google: 'health' (Fitbit) or 'drive' (backup)
+  try { back = await auth.handleRedirect(); } catch (e) { S.err = e.message; }
   // Real mode when signed in, or when real data is cached (sign-in expired: keep showing it).
   data.useSource(api, '');
   const cached = await data.loadCached();
@@ -471,8 +483,8 @@ async function autoRestore() {
   S.expired = !S.demo && !auth.isSignedIn();
   if (S.model) S.v = data.derive(S.model);
   render();
-  if (justLoggedIn) { ui.toast('已连接 Fitbit'); await syncNow({ force: !S.model }); }
-  else await syncNow();
+  if (back === 'health') { ui.toast('已连接 Fitbit'); await syncNow({ force: !S.model }); }
+  else { if (back === 'drive') ui.toast('Google Drive 备份已开启'); await syncNow(); }
   await backupCheck();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

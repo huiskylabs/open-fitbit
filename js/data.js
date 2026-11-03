@@ -36,7 +36,7 @@ export async function sync(model, { force = false } = {}) {
   const m = full ? emptyModel() : JSON.parse(JSON.stringify(model));
   if (!full) { m.devices ||= []; m.daily ||= {}; }
   // Only sleep and exercise are required; any other type may be missing on this device.
-  const soft = (p) => p.catch((e) => { if (e.message === 'NOT_SIGNED_IN') throw e; console.warn(e); return null; });
+  const soft = (p) => p.catch((e) => { if (/^(NOT_SIGNED_IN|RECONNECT|REVOKE)$/.test(e.message)) throw e; console.warn(e); return null; });
   const [sleeps, exercises, steps, zones, hr, ranges, devices, ...dailies] = await Promise.all([
     source.getSleeps(since),
     source.getExercises(since),
