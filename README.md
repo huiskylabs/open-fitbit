@@ -13,6 +13,34 @@
 
 没连接之前显示示例数据，可以先把每个页面都看一遍。
 
+![四个页面（示例数据）](docs/screenshot.png)
+
+## 想自己用？
+
+谁都可以用，不用写代码，也不用付钱给我。数据只在你的手机和你自己的 Google 账号之间走，我这边看不到。你需要：
+
+- 一块 Fitbit，账号已经在 Google Health / Fitbit app 里迁移到 Google 账号
+- 一台 iPhone（Android 用 Chrome 也能装到桌面，没测过）
+- 一个你自己的 Google Cloud 项目（免费），用来拿到 Client ID 和 Client Secret
+
+两种用法，选一种：
+
+- **直接用我放好的网址**：`https://huiskylabs.github.io/open-fitbit/`。下面第 2 步的回调地址就填这个网址。
+- **fork 一份自己放**：fork 这个仓库 → Settings → Pages 选 `main` 分支根目录，网址会是 `https://你的用户名.github.io/open-fitbit/`，回调地址填你自己的网址。这样代码完全在你手里，我改代码不会影响你。
+
+### 拿 Client ID（只做一次，大约 15 分钟）
+
+1. 打开 [Google Cloud Console](https://console.cloud.google.com/)，新建一个项目（名字随便）。
+2. **API 和服务 → 库**：搜 *Google Health API*，启用；再搜 *Google Drive API*，启用（训练记录备份用）。
+3. **Google Auth Platform**（OAuth 同意屏幕）：
+   - 品牌塑造：填个 app 名字和你的邮箱
+   - 受众群体：选 *外部（External）*，在 *测试用户* 里加上你自己的 Gmail
+   - 数据访问：添加上面“用到的 Google 权限”里的三个 `googlehealth` 权限
+4. **客户端 → 创建客户端**：类型选 *Web 应用*，在 *已获授权的重定向 URI* 里填你用的那个网址（结尾的 `/` 也要有）。
+5. 创建完会显示 Client ID 和 Client Secret，当场复制或下载保存（Secret 之后可能看不到完整的）。
+
+然后按下面“安装步骤”的第 3 步开始：加到主屏幕，在 app 设置里填这两个值，用 Google 账号授权。授权时看到“Google 未验证此应用”是正常的，因为这是你自己的项目，点“继续”。
+
 ## 分数怎么算
 
 - **睡眠分**（0–100）= 时长 50（4 小时 0 分，8 小时满分）+ 规律 25（上床和起床时间跟前 7 晚的中位数比）+ 深睡和 REM 占比 25（40% 以上满分）
@@ -55,6 +83,10 @@
    换手机后连接 Fitbit，会自动从备份恢复。设置里也可以随时导出 JSON 文件。
 7. **保持一直连着**：Google 项目在“测试”状态下登录令牌 7 天过期，到时 app 顶部会提示，点“重新连接”即可（手机上的数据不会丢）。
    想不再过期：Google Cloud → Google Auth Platform → Audience → **Publish app**（不用提交审核），然后在 app 里重新连接一次。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。
 
 ## 文件
 
