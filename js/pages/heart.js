@@ -1,45 +1,69 @@
-// 心率：日 = 24 小时曲线；周 / 月 / 3 月 = 静息心率、HRV 和你的基线
-import { parseYmd, addDays, ymd, mean } from '../util.js';
+// 心率：恢复得怎么样。日 = 静息心率、HRV 和全天曲线；周 / 月 / 3 个月 = 静息心率和 HRV 在不在你的正常范围
+import { parseYmd, addDays, ymd, mean, hm } from '../util.js';
 import * as C from '../charts.js';
-import { card, nums, num, empty, series, xLabels, workouts, zonesMin, activeZoneMin, zoneAvg } from './common.js';
+import { card, nums, num, empty, series, xLabels, workouts, kindLabel, METRIC, rangeText, daysOff } from './common.js';
 import { hrSeries } from '../data.js';
-import { VITALS } from './sleep.js';
+import { isWorse, WORSE } from '../scores.js';
+
+const KEYS = ['rhr', 'hrv'];
+const SPAN = { rhr: 10, hrv: 20 }; // the y axis shows at least this much, so 1 bpm doesn't look like a swing
+const fmtK = (k, x) => METRIC[k].fmt(x);
+
+// the 7-day average for each day of the period, using the days before it too
+const rolling = (v, per, k) => per.days.map((date) => {
+  const w = [];
+  for (let i = 0; i < 7; i++) { const x = v.daily[ymd(addDays(parseYmd(date), -i))]?.[k]; if (x != null) w.push(x); }
+  return w.length >= 3 ? mean(w) : null;
+});
+
+// "比前 7 天低 1 bpm"; for 3 months, the last 4 weeks against the first 4
+function change(v, per, k, s) {
+  const m = METRIC[k];
+  let a, b, what;
+  if (per.range === 'q') {
+    a = mean(s.slice(-28).map((p) => p.v)); b = mean(s.slice(0, 28).map((p) => p.v)); what = '3 个月前';
+  } else {
+    const prev = [];
+    for (let i = 1; i <= per.n; i++) { const x = v.daily[ymd(addDays(per.start, -i))]?.[k]; if (x != null) prev.push(x); }
+    a = mean(s.map((p) => p.v)); b = prev.length >= Math.min(3, per.n) ? mean(prev) : null; what = `前 ${per.n} 天`;
+  }
+  if (a == null || b == null) return '';
+  const d = Math.round(a - b), w = /^\d/.test(what) ? ` ${what}` : what;
+  return d === 0 ? `和${w}差不多` : `比${w}${d > 0 ? '高' : '低'} ${Math.abs(d)} ${m.unit}`;
+}
 
 export function render(ctx) {
   const { v, per } = ctx;
   if (per.range === 'd') return day(ctx);
-  const rhr = series(v, per, 'rhr'), hrv = series(v, per, 'hrv');
+  const s = Object.fromEntries(KEYS.map((k) => [k, series(v, per, k)]));
+  const has = (k) => s[k].some((p) => p.v != null);
+  if (!KEYS.some(has)) return empty('这段时间没有心率数据');
+  let out = card('', nums(...KEYS.filter(has).map((k, i) =>
+    num(`平均${k === 'hrv' ? ' ' : ''}${METRIC[k].name}`, fmtK(k, mean(s[k].map((p) => p.v))), METRIC[k].unit, i ? 'sm' : '', change(v, per, k, s[k])))), { cls: 'flat' });
   const xl = xLabels(per.range);
-  const last = (s) => s.filter((p) => p.v != null).at(-1)?.v;
-  let out = '';
-  if (rhr.some((p) => p.v != null)) out += card('静息心率', C.trendBand(rhr, v.base.rhr, { unit: 'bpm', xLabels: xl }), { right: `<b class="big">${last(rhr)}<small> bpm</small></b>` });
-  if (hrv.some((p) => p.v != null)) out += card('HRV', C.trendBand(hrv, v.base.hrv, { unit: 'ms', xLabels: xl }), { right: `<b class="big">${Math.round(last(hrv))}<small> ms</small></b>` });
-  if (!out) return empty('这段时间没有心率数据');
-  const ranges = per.days.map((date) => { const d = v.daily[date] || {}; return { date, min: d.hrMin ?? null, max: d.hrMax ?? null, avg: d.hrAvg ?? null }; });
-  if (ranges.some((r) => r.min != null)) out += card('每日心率范围', C.rangeBars(ranges, { xLabels: (s) => xl(s.map((p) => ({ date: p.date }))) }), { sub: '竖条 = 最低到最高 · 点 = 平均' });
-  if (per.range !== 'q') {
-    const zd = per.days.map((date) => ({ date, z: v.daily[date]?.zoneSec ? zonesMin(v.daily[date].zoneSec) : null }));
-    if (zd.some((d) => d.z)) out += card('每日心率区间分钟', C.zoneStack(zd, { avg: zoneAvg(v, per.to), xLabels: (s) => xl(s.map((p) => ({ date: p.date }))) }), { sub: '虚线 = 你的平均' });
-  }
-  const vit = VITALS.filter((x) => ['resp', 'spo2', 'skinRel'].includes(x.key)).map((x) => {
-    const s = per.days.map((date) => ({ date, v: v.daily[date]?.[x.key] ?? null }));
-    const vals = s.filter((p) => p.v != null);
-    if (vals.length < 2) return '';
-    return `<div class="vital"><div class="vk">${x.name}</div><div class="vv">${x.fmt(vals.at(-1).v)}<small>${x.unit}</small></div>${C.sparkBand(s, v.base[x.key] || {})}</div>`;
-  }).join('');
-  if (vit) out += card('夜间体征', `<div class="vitals three">${vit}</div>`, { sub: '蓝带 = 你的正常范围' });
+  for (const k of KEYS.filter(has)) out += trendCard(v, per, k, s[k], xl);
   return out;
+}
+
+// the title says how many days were on the worse side; the band is the normal range, its numbers in the sub
+function trendCard(v, per, k, s, xl) {
+  const bands = v.base[k] || {};
+  const m = METRIC[k];
+  const title = `${m.name}：${daysOff(k, s, bands)}`;
+  const b = bands[s.filter((p) => bands[p.date]).at(-1)?.date];
+  return card(title, C.trendBand(s, bands, { unit: m.unit, xLabels: xl, worse: WORSE[k], minSpan: SPAN[k], avg: per.range === 'w' ? false : rolling(v, per, k) }),
+    { sub: b ? `${rangeText(k, b)} ${m.unit}` : '' });
 }
 
 function day(ctx) {
   const { v, per } = ctx;
-  const d = v.daily[per.to] || {};
-  let out = card('', nums(
-    num('静息', d.rhr ?? '–'), num('最低', d.hrMin != null ? Math.round(d.hrMin) : '–'),
-    num('最高', d.hrMax != null ? Math.round(d.hrMax) : '–'), num('平均', d.hrAvg != null ? Math.round(d.hrAvg) : '–', 'bpm'),
-  ), { cls: 'flat' });
-  out += card('全天心率', `<div id="hrday" data-date="${per.to}"><div class="empty sm">读取中…</div></div>`);
-  if (d.zoneSec) out += card('心率区间分钟', C.zoneRows(zonesMin(d.zoneSec)), { sub: `合计 ${Math.round(activeZoneMin(d.zoneSec))} 分钟` });
+  const date = per.to;
+  const d = v.daily[date] || {};
+  const b = (k) => v.base[k]?.[date];
+  const cell = (k, i) => num(METRIC[k].name, `<span class="${isWorse(k, d[k], b(k)) ? 'warn' : ''}">${fmtK(k, d[k])}</span>`, METRIC[k].unit, i ? 'sm' : '', rangeText(k, b(k)));
+  const keys = KEYS.filter((k) => d[k] != null);
+  let out = keys.length ? card('', nums(...keys.map(cell)), { cls: 'flat' }) : '';
+  out += card('全天心率', `<div id="hrday" data-date="${date}"><div class="empty sm">读取中…</div></div>`);
   return out;
 }
 
@@ -56,6 +80,16 @@ export async function after(ctx, root) {
     if (!pts.length) { el.innerHTML = '<div class="empty sm">这天没有心率数据</div>'; return; }
     const sleeps = v.m.sleeps.filter((s) => s.end > start && s.start < end);
     const ws = workouts(v).filter((w) => w.end > start && w.start < end);
-    el.innerHTML = C.dayCurve(pts, { start, end, zones: v.zones, sleeps, workouts: ws, rest: v.daily[date]?.rhr, now: Date.now() });
-  } catch (e) { if (el.isConnected) el.innerHTML = `<div class="empty sm">${e.message}</div>`; }
+    el.innerHTML = C.dayCurve(pts, { start, end, sleeps, workouts: ws, rest: v.daily[date]?.rhr, now: Date.now() });
+    // "最高 172 bpm · 19:05 篮球": the highest point, and what you were doing then
+    const top = pts.reduce((a, p) => ((p.hi ?? p.v) > (a.hi ?? a.v) ? p : a));
+    const w = ws.find((x) => top.t >= x.start - 5 * 60e3 && top.t <= x.end + 5 * 60e3);
+    const sub = document.createElement('span');
+    sub.className = 'sub';
+    sub.textContent = `最高 ${Math.round(top.hi ?? top.v)} bpm · ${hm(new Date(top.t))}${w ? ` ${kindLabel(w)}` : ''}`;
+    el.closest('.card')?.querySelector('h2')?.append(sub);
+  } catch (e) {
+    console.warn(e);
+    if (el.isConnected) el.innerHTML = '<div class="empty sm">没读到这天的心率，稍后再试</div>';
+  }
 }

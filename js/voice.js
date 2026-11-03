@@ -1,5 +1,5 @@
 // Voice → sets.
-// Speech → text is the iPhone's own: the 🎤 on the keyboard in the home-screen app (Safari's speech
+// Speech → text is the iPhone's own: the microphone key on the keyboard in the home-screen app (Safari's speech
 // recognition is not available there), or Safari's speech recognition when the page runs in Safari.
 // Text → sets happens on the phone (sayparse.js). Only what the phone can't place goes to an AI model,
 // and only when a key is filled in: OpenRouter (sk-or-…) or Anthropic (sk-ant-…). The key stays in
@@ -30,8 +30,8 @@ const Rec = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
 export const canListen = () => !!Rec && !standalone();
 
 const REC_ERR = {
-  'not-allowed': '没有麦克风权限：在 iPhone 设置 → Safari → 麦克风 里允许',
-  'service-not-allowed': '这里不能用语音识别，可以用键盘上的 🎤 说',
+  'not-allowed': '没有麦克风权限：在“设置”>“Safari 浏览器”>“麦克风”里允许',
+  'service-not-allowed': '这里用不了语音识别，用键盘上的麦克风键说',
   'audio-capture': '找不到麦克风',
   network: '语音识别需要网络',
 };

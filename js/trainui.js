@@ -1,7 +1,8 @@
 // Training editor (bottom sheet): confirm or correct a detected session, log one by hand, or say it.
-// Saying it: in the home-screen app, tap 说 and use the 🎤 on the iPhone keyboard; in Safari, hold
-// the button and talk. The phone turns the words into lifts and sets (sayparse.js); an AI model is
-// asked only about words the phone couldn't place, and only when a key is set.
+// Saying it: in the home-screen app, tap 说 and use the microphone key on the iPhone keyboard; in
+// Safari, hold the button and talk. The phone turns the words into lifts and sets (sayparse.js); an
+// AI model is asked only about words the phone couldn't place, and only when a key is set.
+// 取消 (or tapping outside) asks first when something was changed.
 import * as tr from './training.js';
 import * as voice from './voice.js';
 import { parseLocal } from './sayparse.js';
@@ -15,6 +16,12 @@ let hooks = {}; // { summarize(start, end, peaks) → hr summary, done(), openSe
 export const setHooks = (h) => { hooks = h; };
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
+const snap = () => JSON.stringify([ed.date, ed.items, ed.defs]);
+const dirty = () => !!ed && snap() !== ed.saved;
+const pref = {
+  get(k) { try { return localStorage.getItem('ui:' + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('ui:' + k, v); } catch {} },
+};
 const nameOf = (id) => ed?.defs[id]?.name || tr.lift(id).name;
 const isBw = (id) => (ed?.defs[id] ? !!ed.defs[id].bodyweight : tr.lift(id).bodyweight);
 const stepOf = (id) => (ed?.defs[id] ? 2.5 : tr.lift(id).step || 2.5);
@@ -24,12 +31,13 @@ const labelOf = (id, sets) => {
   const reps = sets.map((s) => s.reps), same = reps.every((r) => r === reps[0]);
   const top = Math.max(0, ...sets.map((s) => (isBw(id) ? s.add || 0 : s.kg || 0)));
   const rt = same ? `${sets.length}×${reps[0]}` : reps.join('/');
-  return isBw(id) ? (top ? `${rt} · +${top} kg` : rt) : `${rt} · ${top} kg`;
+  return isBw(id) ? (top ? `${rt} · +${top} kg` : same ? rt : `${rt} 次`) : `${rt} · ${top} kg`;
 };
 
 // init: { id?, pendingId?, date, start?, end?, items, source?, exId?, peaks?, hr?, said? }
 export function open(init, { title, talk = false } = {}) {
   ed = { ...clone(init), items: clone(init.items || []), defs: {}, title: title || (init.id ? '改训练' : init.start ? '确认训练' : '记一次训练') };
+  ed.saved = snap();
   draw();
   if (talk) startTalk();
 }
@@ -46,38 +54,31 @@ function setRow(it, i, s, k) {
   const v = bw ? s.add || 0 : s.kg || 0;
   return `<div class="ed-set${s.hard ? ' is-hard' : ''}">
     <span class="n">${k + 1}</span>
-    <span class="stp"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="-1" aria-label="少一次">−</button><input data-f="reps" data-i="${i}" data-k="${k}" inputmode="numeric" value="${s.reps}" aria-label="次数"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="1" aria-label="多一次">+</button><em>次</em></span>
-    <span class="stp w"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="-1" aria-label="减重量">−</button><input data-f="${f}" data-i="${i}" data-k="${k}" inputmode="decimal" value="${fmtKg(v)}" aria-label="${bw ? '负重' : '重量'}"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="1" aria-label="加重量">+</button><em>${bw ? '+kg' : 'kg'}</em></span>
-    <button type="button" class="hard${s.hard ? ' on' : ''}" data-ed="hard" data-i="${i}" data-k="${k}">吃力</button>
+    <span class="stp"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="-1" aria-label="少一次">−</button><input data-f="reps" data-i="${i}" data-k="${k}" inputmode="numeric" value="${s.reps}" aria-label="第 ${k + 1} 组次数"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="reps" data-d="1" aria-label="多一次">+</button></span>
+    <span class="stp w"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="-1" aria-label="减重量">−</button><input data-f="${f}" data-i="${i}" data-k="${k}" inputmode="decimal" value="${fmtKg(v)}" aria-label="第 ${k + 1} 组${bw ? '负重' : '重量'}（kg）"><button type="button" data-ed="step" data-i="${i}" data-k="${k}" data-f="${f}" data-d="1" aria-label="加重量">+</button></span>
+    <button type="button" class="hard${s.hard ? ' on' : ''}" data-ed="hard" data-i="${i}" data-k="${k}" aria-pressed="${!!s.hard}">吃力</button>
     <button type="button" class="x" data-ed="del-set" data-i="${i}" data-k="${k}" aria-label="删除这组">×</button>
   </div>${s.note ? `<div class="ed-note">“${esc(s.note)}”</div>` : ''}`;
 }
 
-const scale = () => ({
-  maxReps: Math.max(10, ...ed.items.flatMap((it) => it.sets.map((s) => s.reps))),
-  maxLoad: Math.max(60, ...ed.items.flatMap((it) => it.sets.map((s) => (isBw(it.lift) ? s.add || 0 : s.kg || 0)))),
-});
-const viz = (it, maxReps, maxLoad) => T.setBlocks(it.lift, it.sets.map((s) => (isBw(it.lift) ? { ...s, kg: 0 } : s)), { W: 300, H: 26, maxReps, maxLoad, slots: Math.max(5, it.sets.length) });
+// column names once per lift, so the numbers in the rows need no units
+const setHead = (it) => `<div class="ed-set head"><span class="n"></span><span>次数</span><span>${isBw(it.lift) ? '负重 kg' : '重量 kg'}</span><span></span><span></span></div>`;
 
 function html() {
   const lib = tr.allLiftIds().filter((id) => !ed.items.some((it) => it.lift === id));
-  const { maxReps, maxLoad } = scale();
   return `<div class="ed">
-    <h3>${esc(ed.title)}${ed.start ? `<span class="sub">${when()}</span>` : ''}</h3>
+    <div class="sheet-nav"><button type="button" class="nav-btn" data-ed="cancel">取消</button><h3>${esc(ed.title)}${ed.start ? `<small>${when()}</small>` : ''}</h3><button type="button" class="nav-btn b" data-ed="save">保存</button></div>
     ${ed.start ? '<div class="ed-hr"></div>' : `<label class="field row"><span>日期</span><input type="date" id="ed-date" value="${ed.date}" max="${ymd(today())}"></label>`}
     ${ed.said ? `<div class="ed-said">“${esc(ed.said)}”</div>` : ''}
-    ${ed.items.length ? '' : `<div class="empty sm">${hold() ? '按住下面的按钮说' : '点“说”，再点键盘上的 🎤'}，比如“深蹲 100 公斤 5 组 5 个，引体向上 4 组 8 个，最后一组很吃力”。也可以点动作名手动加。</div>`}
+    ${ed.items.length ? '' : '<div class="empty sm">比如：深蹲 100 公斤 5 组 5 个</div>'}
     ${ed.items.map((it, i) => `<div class="ed-item" data-i="${i}">
-      <div class="ed-ih"><i style="background:${tr.lift(it.lift).color}"></i><b>${esc(nameOf(it.lift))}</b><small>${esc(labelOf(it.lift, it.sets))}</small><button type="button" class="x" data-ed="del-item" data-i="${i}" aria-label="删除这个动作">×</button></div>
-      <div class="ed-viz">${viz(it, maxReps, maxLoad)}</div>
+      <div class="ed-ih"><b>${esc(nameOf(it.lift))}</b><small>${esc(labelOf(it.lift, it.sets))}</small></div>
+      ${setHead(it)}
       ${it.sets.map((s, k) => setRow(it, i, s, k)).join('')}
-      <button type="button" class="btn ghost small add-set" data-ed="add-set" data-i="${i}">+ 一组</button>
+      <div class="ed-foot"><button type="button" class="btn small" data-ed="add-set" data-i="${i}">加一组</button><button type="button" class="link danger" data-ed="del-item" data-i="${i}">删除这个动作</button></div>
     </div>`).join('')}
-    <div class="ed-add"><span class="k">加动作</span>${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}"><i style="background:${tr.lift(id).color}"></i>${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>
-    <div class="ed-bar">
-      <button type="button" class="btn talk" data-ed="talk">${talkLabel()}</button>
-      <button type="button" class="btn pri" data-ed="save">保存</button>
-    </div>
+    <div class="ed-add"><span class="k">加动作</span>${lib.map((id) => `<button type="button" class="chip" data-ed="add-lift" data-id="${esc(id)}">${esc(tr.lift(id).name)}</button>`).join('')}<button type="button" class="chip" data-ed="new-lift">其他…</button></div>
+    <div class="ed-bar"><button type="button" class="btn pri talk" data-ed="talk">${talkLabel()}</button></div>
   </div>`;
 }
 
@@ -89,7 +90,7 @@ function draw() {
     box.outerHTML = html();
     el.scrollTop = top;
   } else {
-    el = openSheet(html(), { cls: 'ed-sheet', onClose: () => { stopAll(); ed = null; } });
+    el = openSheet(html(), { cls: 'ed-sheet', canClose: () => !dirty() || confirm('放弃修改？'), onClose: () => { stopAll(); ed = null; } });
     el.addEventListener('click', onClick);
     el.addEventListener('change', onInput);
     el.addEventListener('pointerdown', onDown);
@@ -104,7 +105,7 @@ async function drawHr() {
     const a = ed.start - 3 * 60e3, b = ed.end + 3 * 60e3;
     const pts = await hrSeries(a, b, 60);
     const raw = ed.hr?.peaks?.length ? ed.hr.peaks : ed.peaks || [];
-    const { peaks, spans } = tr.colorPeaks(raw, ed.items);
+    const { peaks, spans } = tr.setSpans(raw, ed.items);
     if (box.isConnected) box.innerHTML = T.sessionHr(pts, { start: a, end: b, peaks, spans, H: 90 });
   } catch { /* no heart rate */ }
 }
@@ -119,13 +120,10 @@ function onInput(e) {
   const v = Math.max(0, parseFloat(String(t.value).replace(',', '.')) || 0);
   if (t.dataset.f === 'reps') s.reps = Math.round(v); else s[t.dataset.f] = v;
   ed.fromGuess = false;
-  // update the label and blocks only, so the next field keeps focus and the keyboard stays up
+  // update the label only, so the next field keeps focus and the keyboard stays up
   const i = +t.dataset.i, it = ed.items[i];
   const box = sheetEl()?.querySelector(`.ed-item[data-i="${i}"]`);
-  if (!box) return;
-  const { maxReps, maxLoad } = scale();
-  box.querySelector('.ed-ih small').textContent = labelOf(it.lift, it.sets);
-  box.querySelector('.ed-viz').innerHTML = viz(it, maxReps, maxLoad);
+  if (box) box.querySelector('.ed-ih small').textContent = labelOf(it.lift, it.sets);
 }
 
 function defaultSets(id) {
@@ -147,9 +145,9 @@ async function onClick(e) {
       break;
     }
     case 'hard': it.sets[k].hard = !it.sets[k].hard; if (!it.sets[k].hard) delete it.sets[k].note; break;
-    case 'del-set': it.sets.splice(k, 1); if (!it.sets.length) ed.items.splice(i, 1); break;
+    case 'del-set': it.sets.splice(k, 1); if (!it.sets.length) { delItem(i); return; } break;
     case 'add-set': { const l = it.sets.at(-1) || defaultSets(it.lift)[0]; const { note, hard, ...s } = l; it.sets.push({ ...s }); break; }
-    case 'del-item': ed.items.splice(i, 1); break;
+    case 'del-item': delItem(i); return;
     case 'add-lift': ed.items.push({ lift: b.dataset.id, sets: defaultSets(b.dataset.id) }); break;
     case 'new-lift': {
       const name = (prompt('动作名称（比如：哑铃划船）') || '').trim();
@@ -160,6 +158,7 @@ async function onClick(e) {
       break;
     }
     case 'save': await save(); return;
+    case 'cancel': closeSheet(); return;
     case 'talk': if (!hold()) startTalk(); return; // tap: keyboard dictation; hold: see onDown
     default: return;
   }
@@ -167,9 +166,18 @@ async function onClick(e) {
   draw();
 }
 
+// a whole lift goes with an undo (the × next to a set only takes that set)
+function delItem(i) {
+  const [gone] = ed.items.splice(i, 1);
+  ed.fromGuess = false;
+  draw();
+  const me = ed;
+  toast(`已删除${nameOf(gone.lift)}`, { action: '撤销', onAction: () => { if (ed !== me) return; ed.items.splice(Math.min(i, ed.items.length), 0, gone); draw(); } });
+}
+
 async function save() {
   const items = ed.items.filter((it) => it.sets.length);
-  if (!items.length) { toast('还没有动作'); return; }
+  if (!items.length) { toast('还没有加动作'); return; }
   const btn = sheetEl()?.querySelector('[data-ed="save"]');
   if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
   for (const it of items) if (ed.defs[it.lift]) tr.ensureLift(it.lift, ed.defs[it.lift]);
@@ -180,14 +188,14 @@ async function save() {
   else if (ed.start && hooks.summarize) s.hr = await hooks.summarize(ed.start, ed.end, ed.peaks).catch(() => null);
   await tr.saveSession(s);
   ed = null;
-  closeSheet();
+  closeSheet({ force: true });
   toast('已保存');
   hooks.done?.();
 }
 
 // ---------- voice ----------
 // hold to talk where the page may use speech recognition (Safari); elsewhere (the home-screen app)
-// tap and dictate with the keyboard's 🎤
+// tap and dictate with the keyboard's microphone key
 const hold = () => voice.canListen();
 export const talkLabel = () => (hold() ? '按住说话' : '说');
 
@@ -227,19 +235,23 @@ function preview() {
   const ta = vo?.querySelector('textarea'), pv = vo?.querySelector('.vo-pv');
   if (!ta || !pv || !ed) return;
   const t = ta.value.trim();
-  if (!t) { pv.innerHTML = '<span class="vo-hint">点键盘上的 🎤 说，说完点“好了”</span>'; return; }
+  if (!t) { pv.innerHTML = hint ? `<span class="vo-hint">${hint}</span>` : ''; return; }
   const r = parseLocal(t, current(), { fromGuess: !!ed.fromGuess });
   const chip = (it) => {
     const bw = it.def ? it.def.bodyweight : tr.lift(it.lift).bodyweight;
     const top = Math.max(0, ...it.sets.map((s) => (bw ? s.add || 0 : s.kg || 0)));
     const reps = it.sets.map((s) => s.reps), same = reps.every((x) => x === reps[0]);
     const lbl = `${same ? `${it.sets.length}×${reps[0]}` : reps.join('/')}${bw ? (top ? ` +${fmtKg(top)}` : '') : ` · ${top ? fmtKg(top) : '?'} kg`}${it.sets.some((s) => s.hard) ? ' · 吃力' : ''}`;
-    return `<span class="pv-it"><i style="background:${it.def ? 'var(--c-grey)' : tr.lift(it.lift).color}"></i>${esc(nameIn(it))}<small>${esc(lbl)}</small></span>`;
+    return `<span class="pv-it">${esc(nameIn(it))}<small>${esc(lbl)}</small></span>`;
   };
   pv.innerHTML = (r.touched ? r.items.map(chip).join('') : '') + (r.unknown.length ? `<span class="pv-unk" title="没听懂">${esc(r.unknown.join(' '))}</span>` : '');
 }
 
+// the keyboard's microphone key is pointed out once, the first time
+let hint = '';
 function textMode(msg = '', said = '') {
+  hint = pref.get('mic-hint') ? '' : '点键盘上的麦克风键说，说完点“好了”';
+  pref.set('mic-hint', '1');
   voShow({ text: true, said, status: msg ? `<span class="warn">${esc(msg)}</span>` : '', buttons: '<button type="button" class="btn ghost" data-vo="cancel">取消</button><button type="button" class="btn pri" data-vo="parse">好了</button>' });
 }
 
@@ -268,7 +280,7 @@ function release() {
 async function finish(said, t0) {
   talk = null;
   if (!ed) { voHide(); return; }
-  if (!said && Date.now() - t0 < 1500) { textMode('这里用不了语音识别，用键盘上的 🎤 说'); return; } // ended at once: not available here
+  if (!said && Date.now() - t0 < 1500) { textMode('这里用不了语音识别，用键盘上的麦克风键说'); return; } // ended at once: not available here
   if (!said) { voHide(); toast('没听到，再按住说一次'); return; }
   await parseSaid(said);
 }

@@ -1,73 +1,68 @@
-// 今天：早上打开一屏看完——昨晚、身体状态、待确认训练、步数、近 7 天
-import { hm, ymd, addDays, today, parseYmd, fmtInt, signed, esc } from '../util.js';
+// 今天：先做什么，再看什么。要确认的训练、两个分数和原因、昨晚、身体状态、下次训练、今天的运动、步数
+import { ymd, today, fmtInt, esc, hm } from '../util.js';
 import * as C from '../charts.js';
-import { card, durHtml, workouts, activeZoneMin } from './common.js';
-import { pendingCards } from './trainpage.js';
+import { card, facts, workouts, sleepWhy, recoveryWhy, METRIC, withUnit, rangeText, sp } from './common.js';
+import { pendingCards, nextCard } from './trainpage.js';
 import { wCard, fillMinis } from './workouts.js';
-
-const bar = (k, f) => `<div class="sbar"><span class="k">${k}</span><span class="track"><i style="width:${Math.round((f ?? 0) * 100)}%"></i></span></div>`;
+import { isWorse, WORSE } from '../scores.js';
+import { stepsUsualByNow } from '../data.js';
 
 export function render(ctx) {
   const { v } = ctx;
   const t = ymd(today());
   const n = v.nights[t];
-  const sc = v.sleepScores[t];
-  let out = '';
+  let out = pendingCards(ctx);
+  // the two scores side by side, each with the reason behind it
+  const sw = sleepWhy(v, t), rw = recoveryWhy(v, t), rec = v.recovery[t];
+  if (sw || rw) {
+    const score = (k, total, why, warn, tab, range) => `<div class="score" data-act="goto" data-tab="${tab}" data-range="${range}"><div class="k">${k}</div><div class="v">${total}</div><div class="why${warn ? ' warn' : ''}">${esc(why)}</div></div>`;
+    out += `<section class="card flat"><div class="scores">${sw ? score('睡眠分', sw.total, sw.why, false, 'sleep', 'd') : ''}${rw ? score('恢复分', rec.total, rw.why, rw.warn, 'heart', 'w') : ''}</div></section>`;
+  }
   if (n) {
-    out += `<section class="card tap" data-act="goto" data-tab="sleep" data-range="d">
-      <h2><span>昨晚</span></h2>
-      <div class="score-row">
-        <div class="score">${C.ring(sc?.total)}<div class="lab">睡眠分</div></div>
-        <div class="score-body">
-          <div class="hero">${durHtml(n.asleep)}<span class="when">${hm(new Date(n.start))} → ${hm(new Date(n.end))}</span></div>
-          ${sc ? bar('时长', sc.dur) + (sc.reg != null ? bar('规律', sc.reg) : '') + (sc.stage != null ? bar('深睡 + REM', sc.stage) : '') : ''}
-        </div>
-      </div>
-      ${C.barcode([{ date: t, night: n }], { rowH: 26, label: () => '' })}
-    </section>`;
+    // the 作息 row already has the times; without it (first nights) they go next to the title
+    const hasTimes = sw?.rows.some((r) => r[0] === '作息');
+    out += card('昨晚', C.barcode([{ date: t, night: n }], { rowH: 24, axis: false, label: null }) + (sw ? facts(sw.rows) : ''),
+      { cls: 'tap', act: ' data-act="goto" data-tab="sleep" data-range="d"', sub: hasTimes ? '' : `${hm(new Date(n.start))}–${hm(new Date(n.end))}` });
   }
-  const rec = v.recovery[t];
   const d = v.daily[t] || {};
-  const rows = [
-    ['静息心率', d.rhr, 'rhr', (x) => `${x}`],
-    ['HRV', d.hrv, 'hrv', (x) => `${Math.round(x)} ms`],
-    ['呼吸率', d.resp, 'resp', (x) => x.toFixed(1)],
-    ['皮温', d.skinRel, 'skinRel', (x) => `${signed(x, 1)} °C`],
-  ].filter((r) => r[1] != null);
-  if (rec || rows.length) {
-    out += `<section class="card tap" data-act="goto" data-tab="heart" data-range="w">
-      <h2><span>身体状态</span>${rec?.flags?.length ? '<span class="sub warn">呼吸率或皮温偏高</span>' : ''}</h2>
-      <div class="score-row">
-        ${rec ? `<div class="score">${C.ring(rec.total)}<div class="lab">恢复分</div></div>` : ''}
-        <div class="score-body">${rows.map(([k, val, key, f]) => `<div class="vrow"><span class="k">${k}</span><b>${f(val)}</b>${C.rangeMini(val, v.base[key]?.[t], { W: 110 })}</div>`).join('')}</div>
-      </div>
-    </section>`;
+  const keys = ['rhr', 'hrv', 'resp', 'skinRel'].filter((k) => d[k] != null);
+  if (keys.length) {
+    const b = (k) => v.base[k]?.[t];
+    const worse = keys.filter((k) => isWorse(k, d[k], b(k)));
+    // name · value with the normal range under it · where the value sits in that range
+    const rows = keys.map((k) => `<div><span class="k">${METRIC[k].name}</span><span class="vb"><b class="${worse.includes(k) ? 'warn' : ''}">${withUnit(k, d[k])}</b><span class="n">${rangeText(k, b(k))}</span></span>${C.rangeMini(d[k], b(k), { W: 96, H: 16, worse: WORSE[k] })}</div>`).join('');
+    out += card('身体状态', `<div class="vrows">${rows}</div>`, {
+      cls: 'tap', act: ' data-act="goto" data-tab="heart" data-range="w"',
+      right: worse.length ? `<span class="sub warn">${worse.map((k) => `${sp(METRIC[k].name)}偏${WORSE[k] === 'low' ? '低' : '高'}`).join('、')}</span>` : '',
+    });
   }
-  out += pendingCards(ctx);
-  const steps = d.steps;
-  if (steps != null) out += card('步数', C.progressBar(steps, v.stepsAvg), { right: `<b class="big">${fmtInt(steps)}</b>` });
-  const todays = workouts(v).filter((w) => ymd(new Date(w.start)) === t);
-  out += todays.map((w) => wCard(w)).join('');
-  // last 7 days
-  const days = Array.from({ length: 7 }, (_, i) => ymd(addDays(today(), i - 6)));
-  const sl = days.map((date) => ({ date, v: v.nights[date] ? v.nights[date].asleep / 60 : null }));
-  const rhr = days.map((date) => ({ date, v: v.daily[date]?.rhr ?? null }));
-  const hrv = days.map((date) => ({ date, v: v.daily[date]?.hrv ?? null }));
-  const all = workouts(v);
-  const mins = days.map((date) => ({ date, v: all.filter((w) => ymd(new Date(w.start)) === date).reduce((a, w) => a + w.activeSec / 60, 0) }));
-  const last = (s, f = (x) => x) => { const p = s.filter((x) => x.v != null).at(-1); return p ? f(p.v) : '–'; };
-  const cell = (k, val, chart, tab) => `<div class="sp" data-act="goto" data-tab="${tab}" data-range="w"><div class="sp-h"><span>${k}</span><b>${val}</b></div>${chart}</div>`;
-  out += card('近 7 天', `<div class="sparks">
-    ${cell('睡眠', last(sl, (x) => `${x.toFixed(1)} h`), C.spark(sl, { band: days.map(() => ({ lo: v.goalMin / 60 - 0.02, hi: v.goalMin / 60 + 0.02 })) }), 'sleep')}
-    ${cell('静息心率', last(rhr), C.spark(rhr, { band: days.map((x) => v.base.rhr[x] || null) }), 'heart')}
-    ${cell('HRV', last(hrv, Math.round), C.spark(hrv, { band: days.map((x) => v.base.hrv[x] || null) }), 'heart')}
-    ${cell('运动分钟', Math.round(mins.at(-1).v), C.spark(mins, { kind: 'bar' }), 'workouts')}
-  </div>`);
+  out += nextCard(ctx, { link: true });
+  out += workouts(v).filter((w) => ymd(new Date(w.start)) === t).map((w) => wCard(w)).join('');
+  if (d.steps != null) {
+    const max = Math.max(d.steps, v.stepsAvg || 0, 1000) * 1.08;
+    out += card('步数', `<div id="steps" data-max="${max}">${C.progressBar(d.steps, { max })}</div>`, { right: `<b class="big">${fmtInt(d.steps)}<small>步</small></b>` });
+  }
   if (!out) out = '<div class="empty">还没有数据</div>';
   return out;
 }
 
+// steps you usually have by this time of day (needs the last 14 days in 15-minute steps)
+async function fillSteps(root) {
+  const el = root.querySelector('#steps');
+  if (!el) return;
+  const usual = await stepsUsualByNow().catch(() => null);
+  const mark = el.querySelector('.mark');
+  if (!usual || !mark || !el.isConnected) return;
+  const pct = Math.min(100, (usual / +el.dataset.max) * 100);
+  mark.style.left = `${pct}%`;
+  const em = mark.querySelector('em');
+  em.textContent = `平时到这个钟点 ${fmtInt(usual)}`;
+  // keep the label inside the card near either end
+  em.style.transform = pct > 62 ? 'translateX(-100%)' : pct < 38 ? 'translateX(-4px)' : '';
+  mark.hidden = false;
+}
+
 export async function after(ctx, root) {
   const { after: trainAfter } = await import('./trainpage.js');
-  await Promise.all([fillMinis(root), trainAfter(ctx, root)]);
+  await Promise.all([fillMinis(root), trainAfter(ctx, root), fillSteps(root)]);
 }

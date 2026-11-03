@@ -7,8 +7,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="我的健康">
-  <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f2f1ee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
   <meta name="referrer" content="no-referrer">
   <title>我的健康</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -19,18 +19,19 @@
 <body>
   <header class="top">
     <div class="top-row">
-      <h1><span id="title">今天</span><small id="date"></small></h1>
+      <h1><span id="title">今天</span><span id="plabel"></span></h1>
       <div class="top-actions">
         <button id="sync" class="icon-btn" aria-label="刷新"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <button id="open-settings" class="icon-btn" aria-label="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button id="open-settings" class="icon-btn" aria-label="设置"><svg viewBox="0 0 24 24"><path d="M10.3,4.3 L10.5,1.6 L13.5,1.6 L13.7,4.3 L16.2,5.3 L18.3,3.6 L20.4,5.7 L18.7,7.8 L19.7,10.3 L22.4,10.5 L22.4,13.5 L19.7,13.7 L18.7,16.2 L20.4,18.3 L18.3,20.4 L16.2,18.7 L13.7,19.7 L13.5,22.4 L10.5,22.4 L10.3,19.7 L7.8,18.7 L5.7,20.4 L3.6,18.3 L5.3,16.2 L4.3,13.7 L1.6,13.5 L1.6,10.5 L4.3,10.3 L5.3,7.8 L3.6,5.7 L5.7,3.6 L7.8,5.3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
       </div>
     </div>
     <div id="period" class="period" hidden>
       <div class="seg" role="tablist" aria-label="时间范围">
-        <button data-range="d" role="tab">日</button><button data-range="w" role="tab">周</button><button data-range="m" role="tab">月</button><button data-range="q" role="tab">3月</button>
+        <button data-range="d" role="tab">日</button><button data-range="w" role="tab">周</button><button data-range="m" role="tab">月</button><button data-range="q" role="tab">3个月</button>
       </div>
       <div class="pnav">
-        <button data-nav="1" aria-label="更早">‹</button><span id="plabel"></span><button data-nav="-1" aria-label="更近">›</button>
+        <button data-nav="1" aria-label="更早"><svg viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button data-nav="-1" aria-label="更近"><svg viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
     </div>
   </header>
@@ -41,7 +42,7 @@
     <button data-tab="today" role="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>今天</button>
     <button data-tab="sleep" role="tab"><svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>睡眠</button>
     <button data-tab="workouts" role="tab"><svg viewBox="0 0 24 24"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>运动</button>
-    <button data-tab="train" role="tab"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>训练</button>
+    <button data-tab="train" role="tab"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>力量</button>
     <button data-tab="heart" role="tab"><svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>心率</button>
   </nav>
   <script type="module" src="app.js"></script>
