@@ -1,0 +1,118 @@
+/* 色场 — every subject owns a field of color.
+   Sleep is ultramarine, heart is black with red, strength is green, workouts violet. The top numbers
+   of each page sit on that page's color in a tall condensed face, like a scoreboard; the rest stays on
+   white so the charts are easy to read. On Today each card is filled with its subject's color.
+   Orange still means only "worse"; on a colored field it becomes a light chip so it can still be seen. */
+@font-face { font-family: "Barlow Condensed"; font-weight: 500; font-display: swap; src: url(../fonts/barlow-condensed-latin-500-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; font-display: swap; src: url(../fonts/barlow-condensed-latin-600-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; font-display: swap; src: url(../fonts/barlow-condensed-latin-700-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Barlow Condensed"; font-weight: 800; font-display: swap; src: url(../fonts/barlow-condensed-latin-800-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+
+:root[data-style="field"] {
+  color-scheme: light;
+  --bg: #efeee9; --card: #ffffff; --card-2: #f1f0eb; --line: #e3e2dc; --grid: #ecebe5; --track: #ecebe5;
+  --text: #0c0c0c; --text-2: #4e4d49; --muted: #7a7974;
+  --deep: #241fa8; --light: #3b37e6; --rem: #8f8cff; --awake: #d2d1ca; --sleep: var(--light);
+  --strength: #00a36c; --strength-soft: #cdeedd; --ball: #7c3aed; --ball-ink: #6a29d9; --other: #a8a7a0;
+  --hr: #f0322b; --z1: #fcd3cf; --z2: #f99a92; --z3: #f0574e; --z4: #b8140e;
+  --worse: #ff7a1a; --worse-ink: #c2520a; --danger: #d92d20;
+  --band: rgba(12, 12, 12, .07); --band-strong: rgba(12, 12, 12, .13); --dot: #c6c5bd; --ref: var(--text-2);
+  --cond: "Barlow Condensed", "PingFang SC", system-ui, sans-serif;
+  --f-sleep: #3b37e6; --f-heart: #121212; --f-strength: #00a36c; --f-workouts: #7c3aed; --f-today: #121212;
+  --f: var(--f-today);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style="field"] {
+    color-scheme: dark;
+    --bg: #0b0b0b; --card: #181818; --card-2: #232323; --line: #2a2a2a; --grid: #262626; --track: #2a2a2a;
+    --text: #f5f5f2; --text-2: #bdbcb6; --muted: #8a8984;
+    --deep: #5753ff; --light: #6f6cff; --rem: #a9a7ff; --awake: #4a4a48;
+    --strength: #1fc48a; --strength-soft: #11382a; --ball: #9b6bff; --ball-ink: #b592ff; --other: #6b6a66;
+    --hr: #ff4d45; --z1: #4a1c1a; --z2: #852b27; --z3: #e4463e; --z4: #ff8a83;
+    --worse: #ff8a33; --worse-ink: #ff9d55; --danger: #ff6b5e;
+    --band: rgba(255, 255, 255, .08); --band-strong: rgba(255, 255, 255, .15); --dot: #4b4b48;
+    --f-heart: #1f1f1f; --f-today: #1f1f1f;
+  }
+}
+[data-style="field"][data-tab="sleep"] { --f: var(--f-sleep); }
+[data-style="field"][data-tab="heart"] { --f: var(--f-heart); }
+[data-style="field"][data-tab="train"] { --f: var(--f-strength); }
+[data-style="field"][data-tab="workouts"] { --f: var(--f-workouts); }
+
+/* header: heavy, tight */
+[data-style="field"] #title { font-size: 34px; font-weight: 800; letter-spacing: -.5px; }
+[data-style="field"] #plabel { font-family: var(--cond); font-size: 20px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+[data-style="field"] .seg { border-radius: 999px; padding: 3px; background: var(--card); }
+[data-style="field"] .seg button { border-radius: 999px; font-weight: 600; }
+[data-style="field"] .seg button[aria-selected="true"] { background: var(--f); color: #fff; box-shadow: none; }
+[data-style="field"] .banner { border-radius: 24px; }
+
+/* cards */
+[data-style="field"] .card, [data-style="field"] .wk { border-radius: 24px; padding: 18px; }
+[data-style="field"] .card h2 { font-size: 17px; font-weight: 800; letter-spacing: -.2px; }
+[data-style="field"] .card h2 .big { font-family: var(--cond); font-size: 30px; font-weight: 800; letter-spacing: 0; }
+[data-style="field"] .card.confirm { box-shadow: inset 0 0 0 3px var(--text); }
+[data-style="field"] .wk .ic { width: 6px; border-radius: 3px; }
+[data-style="field"] .wk .t { font-weight: 800; }
+
+/* numbers: tall condensed */
+[data-style="field"] :is(.num .v, .score .v, .vital .vv, .facts b, .vrows .vb b, .hb .v) { font-family: var(--cond); }
+[data-style="field"] .num .v { font-size: 56px; font-weight: 800; letter-spacing: -.5px; line-height: .98; }
+[data-style="field"] .num.sm .v { font-size: 40px; }
+[data-style="field"] .num .v small, [data-style="field"] .vital .vv small, [data-style="field"] .card h2 .big small { font-family: "PingFang SC", system-ui, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0; }
+[data-style="field"] .vital .vv { font-size: 32px; font-weight: 700; letter-spacing: -.2px; }
+[data-style="field"] .facts b, [data-style="field"] .vrows .vb b { font-size: 18px; font-weight: 700; letter-spacing: .01em; }
+[data-style="field"] .hb .v { font-size: 16px; font-weight: 600; }
+[data-style="field"] :is(.num .k, .score .k, .vital .vk) { font-size: 13px; font-weight: 700; }
+[data-style="field"] svg text { font-family: var(--cond); font-size: 12px; font-weight: 500; }
+[data-style="field"] svg text.lbl { font-family: inherit; font-size: 13px; font-weight: 600; }
+
+/* the color field: the top numbers on every page, and every card on Today */
+[data-style="field"] .card:has(> .nums),
+[data-style="field"] .score,
+[data-style="field"][data-tab="today"] .card[data-tab] {
+  --text: #fff; --text-2: rgba(255, 255, 255, .86); --muted: rgba(255, 255, 255, .68);
+  --grid: rgba(255, 255, 255, .18); --track: rgba(255, 255, 255, .2); --line: rgba(255, 255, 255, .22);
+  --band: rgba(255, 255, 255, .16); --band-strong: rgba(255, 255, 255, .26); --dot: rgba(255, 255, 255, .5); --ref: rgba(255, 255, 255, .85);
+  --worse-ink: #ffd8b8;
+  --card: var(--fc, var(--f)); --card-2: rgba(255, 255, 255, .14);
+  background: var(--fc, var(--f)); color: #fff;
+}
+[data-style="field"] .card:has(> .nums) { padding: 22px 20px 20px; border-radius: 28px; }
+[data-style="field"] .card:has(> .nums) .num .v { font-size: 76px; }
+[data-style="field"] .card:has(> .nums) .num.sm .v { font-size: 48px; }
+[data-style="field"] .card:has(> .nums) .kinds i { box-shadow: 0 0 0 1.5px #fff; }
+[data-style="field"] .card:has(> .nums) .facts { padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .25); }
+[data-style="field"] .card[data-tab="sleep"] {
+  --fc: var(--f-sleep); --deep: #100c6b; --light: #8b88ff; --rem: #d8d6ff; --awake: rgba(255, 255, 255, .3);
+}
+[data-style="field"][data-tab="sleep"] .card:has(> .nums) { --deep: #100c6b; --light: #8b88ff; --rem: #d8d6ff; --awake: rgba(255, 255, 255, .3); }
+[data-style="field"] .card[data-tab="heart"] { --fc: var(--f-heart); }
+[data-style="field"] .card[data-tab="train"] { --fc: var(--f-strength); }
+/* worse on a field: a light chip, still orange-family */
+[data-style="field"] :is(.card:has(> .nums), .score, .card[data-tab]) .warn,
+[data-style="field"] :is(.card:has(> .nums), .score, .card[data-tab]) .sub.warn { color: #3a1600; background: #ffb27a; padding: 0 6px; border-radius: 6px; }
+
+/* today: two score tiles */
+[data-style="field"] .card.flat:has(.scores) { padding: 0; }
+[data-style="field"] .scores { gap: 10px; }
+[data-style="field"] .score { padding: 16px 16px 18px; border-radius: 24px; --fc: var(--f-sleep); }
+[data-style="field"] .score:nth-child(2) { --fc: var(--f-strength); }
+[data-style="field"] .score .v { font-family: var(--cond); font-size: 96px; font-weight: 800; line-height: .9; letter-spacing: -1px; margin: 6px 0 8px; }
+[data-style="field"] .score .why { font-size: 13px; font-weight: 600; }
+
+/* bars */
+[data-style="field"] .pbar .track { height: 14px; border-radius: 7px; }
+[data-style="field"] .pbar .track i { border-radius: 7px; background: var(--text); }
+[data-style="field"] .hb .bar { height: 12px; border-radius: 6px; }
+[data-style="field"] .cal-c { border-radius: 10px; }
+
+/* controls */
+[data-style="field"] .btn, [data-style="field"] .chip { border-radius: 999px; font-weight: 700; }
+[data-style="field"] .btn.pri { background: var(--text); color: var(--bg); }
+[data-style="field"] .tabs { margin: 0 12px calc(8px + var(--safe-b)); padding: 4px; border: 0; border-radius: 28px; background: color-mix(in srgb, var(--card) 86%, transparent); box-shadow: 0 8px 30px rgba(0, 0, 0, .12); }
+[data-style="field"] body { padding-bottom: calc(96px + var(--safe-b)); }
+[data-style="field"] .tabs button { border-radius: 22px; font-weight: 700; }
+[data-style="field"] .tabs button[aria-selected="true"] { background: var(--f); color: #fff; }
+[data-style="field"] .card:has(> .nums) .facts b, [data-style="field"] .card[data-tab] .facts b { font-size: 17px; }
+[data-style="field"] .card:has(> .nums) .facts .n, [data-style="field"] .card[data-tab] .facts .n { font-size: 12px; }

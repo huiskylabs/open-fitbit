@@ -1,0 +1,97 @@
+/* 夜航 — an instrument panel at night.
+   Always dark. Cards are hairline frames on near-black; every number is set in a monospaced
+   instrument face; labels are small and spaced out like panel engravings. Color stays for data only,
+   a little brighter than the default so it reads like a lit display. Orange still means only "worse". */
+@font-face { font-family: "Plex Mono"; font-weight: 300; font-display: swap; src: url(../fonts/ibm-plex-mono-latin-300-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Plex Mono"; font-weight: 400; font-display: swap; src: url(../fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+@font-face { font-family: "Plex Mono"; font-weight: 500; font-display: swap; src: url(../fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2013-2014, U+2212; }
+
+:root[data-style="night"] {
+  color-scheme: dark;
+  --bg: #08090b; --card: #0d0f12; --card-2: #16191e; --line: #1f232a; --grid: #1a1e24; --track: #1a1d23;
+  --text: #ecebe6; --text-2: #a3a29b; --muted: #6c6c68;
+  --deep: #5d55f2; --light: #2f86ff; --rem: #5fe0f5; --awake: #34363c; --sleep: var(--light);
+  --strength: #2fd59a; --strength-soft: #0f3326; --ball: #c084fc; --ball-ink: #d4a5ff; --other: #5c5d61;
+  --hr: #ff5b52; --z1: #3a1716; --z2: #6e2523; --z3: #c8403a; --z4: #ff8a7f;
+  --worse: #ff8a3d; --worse-ink: #ffa165; --danger: #ff6b5e;
+  --band: rgba(255, 255, 255, .06); --band-strong: rgba(255, 255, 255, .13); --dot: #3d3f45; --ref: #8d8c86;
+  --mono: "Plex Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", monospace;
+  --r: 6px;
+}
+[data-style="night"] body {
+  background: radial-gradient(120% 50% at 50% -10%, #12132a 0%, rgba(8, 9, 11, 0) 60%) no-repeat, var(--bg);
+}
+
+/* numbers: mono, light, tabular */
+[data-style="night"] :is(.num .v, .score .v, .vital .vv, .card h2 .big, .facts b, .vrows .vb b, .hb .v, #plabel, .wk .hra, .cal-c .dn, .cal-c .tl, .lift-row .ls, .lp-h span) {
+  font-family: var(--mono);
+}
+[data-style="night"] svg text { font-family: var(--mono); font-size: 10px; letter-spacing: .02em; }
+[data-style="night"] svg text.lbl { font-family: inherit; font-size: 12px; }
+[data-style="night"] .num .v, [data-style="night"] .score .v { font-weight: 300; letter-spacing: -1.5px; }
+[data-style="night"] .num .v { font-size: 44px; line-height: 1.05; }
+[data-style="night"] .num.sm .v { font-size: 26px; letter-spacing: -.5px; }
+[data-style="night"] .num .v small, [data-style="night"] .vital .vv small, [data-style="night"] .card h2 .big small { font-family: "PingFang SC", system-ui, sans-serif; font-size: 12px; letter-spacing: .04em; color: var(--muted); }
+[data-style="night"] .vital .vv { font-weight: 400; font-size: 24px; letter-spacing: -.5px; }
+[data-style="night"] .facts b, [data-style="night"] .vrows .vb b { font-weight: 500; font-size: 14px; }
+[data-style="night"] .card h2 .big { font-weight: 400; font-size: 24px; }
+
+/* labels: small, spaced, engraved */
+[data-style="night"] :is(.num .k, .score .k, .vital .vk, .facts .k, .set-g h4, .sub-h) {
+  font-size: 11px; letter-spacing: .16em; color: var(--muted); text-transform: uppercase;
+}
+[data-style="night"] .num .k::before, [data-style="night"] .score .k::before {
+  content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 8px 2px 0; background: var(--text-2); vertical-align: middle;
+}
+
+/* header */
+[data-style="night"] .top { background: color-mix(in srgb, var(--bg) 80%, transparent); border-bottom: 1px solid var(--line); }
+[data-style="night"] #title { font-size: 28px; font-weight: 600; letter-spacing: .08em; }
+[data-style="night"] #plabel { font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: .06em; }
+[data-style="night"] .seg { padding: 0; gap: 0; border-radius: 0; background: none; box-shadow: inset 0 -1px 0 var(--line); }
+[data-style="night"] .seg button { border-radius: 0; min-width: 56px; color: var(--muted); font-size: 14px; letter-spacing: .1em; }
+[data-style="night"] .seg button[aria-selected="true"] { background: none; box-shadow: inset 0 -2px 0 var(--text); color: var(--text); font-weight: 500; }
+[data-style="night"] .banner { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); }
+
+/* cards: hairline frames with corner ticks */
+[data-style="night"] .card, [data-style="night"] .wk, [data-style="night"] .set-g, [data-style="night"] .ed-item {
+  position: relative; border-radius: var(--r); background: var(--card); border: 1px solid var(--line);
+}
+[data-style="night"] .card:not(.flat)::before {
+  content: ""; position: absolute; top: -1px; left: -1px; width: 10px; height: 10px; border-top: 1px solid var(--text-2); border-left: 1px solid var(--text-2); pointer-events: none;
+}
+[data-style="night"] .card.flat { border: 0; background: none; padding: 8px 2px 16px; }
+[data-style="night"] .card h2 { font-size: 15px; font-weight: 500; letter-spacing: .02em; }
+[data-style="night"] .card.confirm { box-shadow: none; border-color: var(--text-2); background: linear-gradient(180deg, #11141a, var(--card)); }
+[data-style="night"] .wk .ic { width: 2px; }
+
+/* today: two ring gauges */
+[data-style="night"] .scores { gap: 12px; }
+[data-style="night"] .score { display: grid; justify-items: start; gap: 6px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); }
+[data-style="night"] .score .v {
+  --ring: var(--light);
+  display: grid; place-items: center; width: 116px; height: 116px; margin: 4px auto 2px; border-radius: 50%;
+  font-size: 38px; letter-spacing: -1px;
+  background:
+    radial-gradient(closest-side, var(--card) 88%, transparent 89%),
+    conic-gradient(var(--ring) calc(var(--p, 0) * 1%), var(--track) 0);
+}
+[data-style="night"] .score:nth-child(2) .v { --ring: var(--strength); }
+[data-style="night"] .score .why { font-size: 12px; text-align: center; width: 100%; }
+
+/* bars and marks */
+[data-style="night"] .pbar .track, [data-style="night"] .hb .bar { border-radius: 1px; height: 6px; }
+[data-style="night"] .pbar .track i { background: linear-gradient(90deg, var(--text-2), var(--text)); border-radius: 1px; }
+[data-style="night"] .hb .bar i { border-radius: 1px; }
+[data-style="night"] .cal-c { border-radius: 2px; background: #0f1115; }
+[data-style="night"] .cal-c.on { background: var(--strength-soft); }
+
+/* controls */
+[data-style="night"] .btn, [data-style="night"] .chip, [data-style="night"] .stp, [data-style="night"] .field input, [data-style="night"] .field select { border-radius: var(--r); }
+[data-style="night"] .btn { background: transparent; border: 1px solid var(--line); letter-spacing: .06em; font-weight: 500; }
+[data-style="night"] .btn.pri { background: var(--text); border-color: var(--text); color: #08090b; }
+[data-style="night"] .tabs { background: rgba(8, 9, 11, .92); border-top: 1px solid var(--line); }
+[data-style="night"] .tabs button { position: relative; letter-spacing: .1em; font-size: 10px; }
+[data-style="night"] .tabs button[aria-selected="true"]::before { content: ""; position: absolute; top: -2px; left: 30%; right: 30%; height: 2px; background: var(--text); }
+[data-style="night"] .tabs svg { width: 23px; height: 23px; }
+[data-style="night"] .sheet, [data-style="night"] .sheet-nav { background: var(--bg); }

@@ -15,7 +15,7 @@ export function render(ctx) {
   // the two scores side by side, each with the reason behind it
   const sw = sleepWhy(v, t), rw = recoveryWhy(v, t), rec = v.recovery[t];
   if (sw || rw) {
-    const score = (k, total, why, warn, tab, range) => `<div class="score" data-act="goto" data-tab="${tab}" data-range="${range}"><div class="k">${k}</div><div class="v">${total}</div><div class="why${warn ? ' warn' : ''}">${esc(why)}</div></div>`;
+    const score = (k, total, why, warn, tab, range) => `<div class="score" style="--p:${total}" data-act="goto" data-tab="${tab}" data-range="${range}"><div class="k">${k}</div><div class="v">${total}</div><div class="why${warn ? ' warn' : ''}">${esc(why)}</div></div>`;
     out += `<section class="card flat"><div class="scores">${sw ? score('睡眠分', sw.total, sw.why, false, 'sleep', 'd') : ''}${rw ? score('恢复分', rec.total, rw.why, rw.warn, 'heart', 'w') : ''}</div></section>`;
   }
   if (n) {

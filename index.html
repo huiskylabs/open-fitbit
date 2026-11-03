@@ -15,6 +15,18 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // optional look: ?style=night|paper|field (remembered), ?style= to go back to the default
+    (function () {
+      var all = ['night', 'paper', 'field'], q = new URLSearchParams(location.search).get('style'), s = '';
+      try { if (q != null) localStorage.setItem('style', all.indexOf(q) >= 0 ? q : ''); s = localStorage.getItem('style') || ''; } catch (e) { s = q || ''; }
+      if (all.indexOf(s) < 0) return;
+      document.documentElement.dataset.style = s;
+      document.write('<link rel="stylesheet" href="themes/' + s + '.css">');
+      var c = { night: '#08090b', paper: '#f3eee4', field: '#f1f0ec' }[s];
+      document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = c; m.removeAttribute('media'); });
+    })();
+  </script>
 </head>
 <body>
   <header class="top">

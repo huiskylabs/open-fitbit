@@ -91,6 +91,7 @@ function render({ keepScroll = false } = {}) {
   banner();
   const view = $('#view');
   if (!S.v) { view.innerHTML = `<div class="empty">${S.syncing ? '正在读取数据…' : ''}</div>`; return; }
+  document.documentElement.dataset.tab = S.tab;
   const ctx = { v: S.v, per, focus: S.focus, demo: S.demo };
   const y = scrollY;
   try { view.innerHTML = PAGES[S.tab].render(ctx); } catch (e) { console.error(e); view.innerHTML = `<div class="empty">页面出错：${esc(e.message)}</div>`; }
@@ -290,6 +291,9 @@ function openSettings() {
     <section class="set-g"><h4>力量训练</h4>
       <label class="sw"><span>下次训练自动加重量<small>上次每组都做满、不吃力时</small></span><input type="checkbox" id="hints"${tr.get().settings.hints !== false ? ' checked' : ''}></label>
     </section>
+    <section class="set-g"><h4>外观</h4>
+      <label class="field row"><span>风格</span><select id="style">${[['', '默认'], ['night', '夜航'], ['paper', '纸本'], ['field', '色场']].map(([k, n]) => `<option value="${k}"${(document.documentElement.dataset.style || '') === k ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+    </section>
     <section class="set-g"><h4>数据</h4>
       <div class="set-row"><span>上次同步</span><small>${ago(S.model?.syncedAt)}</small></div>
       ${S.demo ? '' : '<button class="btn" data-act="resync">重新下载最近 120 天</button>'}
@@ -300,6 +304,7 @@ function openSettings() {
 async function settingsChange(e) {
   const t = e.target;
   if (t.id === 'hints') { tr.get().settings.hints = t.checked; await tr.save(); render({ keepScroll: true }); }
+  if (t.id === 'style') { try { localStorage.setItem('style', t.value); } catch {} location.reload(); }
   if (t.id === 'ai-model') { voice.setModel(t.value); ui.toast(`之后用 ${voice.MODELS[voice.getModel()].label}`); }
 }
 
