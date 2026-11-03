@@ -74,11 +74,10 @@ function banner() {
     const f = syncError(S.err);
     h = `<span>${esc(f.text)}</span>${f.detail ? '<button class="bn-more" data-act="err-detail">详情</button>' : ''}<button data-act="${f.act}">${f.btn}</button>${f.detail ? `<div class="bn-detail" hidden>${esc(f.detail)}</div>` : ''}`;
   }
-  else if (ask === 'first') h = '训练记录自动备份到 Google Drive，还差授权一次 <button data-act="drive-auth">授权</button>';
-  else if (ask === 'again') h = 'Google Drive 备份要重新授权一次 <button data-act="drive-auth">授权</button>';
-  else if (signed && drive.status().kind === 'disabled') h = `备份还差一步：在 Google Cloud 里启用 Drive API <a class="bn" href="${esc(drive.status().link)}" target="_blank" rel="noopener">去启用</a>`;
   b.innerHTML = h;
   b.hidden = !h;
+  // backup that still needs a step is only a small dot on the settings button; the step itself is in settings
+  $('#open-settings').classList.toggle('dot', !!ask || (signed && drive.status().kind === 'disabled'));
 }
 
 function syncUi() { $('#sync').classList.toggle('spin', S.syncing); }
