@@ -227,8 +227,10 @@ export async function restorePending(p) {
 
 // ---------- detection ----------
 // One local day of 1-minute heart rate and steps → candidate strength sessions:
-// heart rate well above resting for ≥ 15 min, few steps, and ≥ 3 separate peaks (one per set).
-export function detect({ dayStart, hr, steps, sleeps = [], exercises = [], rest }) {
+// heart rate above resting for ≥ 12 min, few steps, and ≥ 3 separate peaks (one per set).
+// Thresholds are loose on purpose: lifting raises HR far less than cardio, and 不是训练 dismisses a wrong guess.
+// `diag`, if given, collects every raised stretch and why it was or wasn't counted (shown in settings).
+export function detect({ dayStart, hr, steps, sleeps = [], exercises = [], rest, diag }) {
   const N = 1440, t0 = +dayStart;
   const H = new Array(N).fill(null), HX = new Array(N).fill(null), S = new Array(N).fill(0), X = new Array(N).fill(false);
   for (const p of hr) { const i = Math.floor((p.t - t0) / 60e3); if (i >= 0 && i < N) { H[i] = p.v; HX[i] = p.hi ?? p.v; } }
@@ -240,7 +242,7 @@ export function detect({ dayStart, hr, steps, sleeps = [], exercises = [], rest 
   const base = rest || awake[Math.floor(awake.length * 0.1)] || 60;
   const med = (i) => median(H.slice(Math.max(0, i - 2), i + 3));
   const stepAvg = (i) => mean(S.slice(Math.max(0, i - 2), i + 3));
-  const on = H.map((v, i) => !X[i] && v != null && med(i) >= base + 25 && stepAvg(i) <= 35);
+  const on = H.map((v, i) => !X[i] && v != null && med(i) >= base + 15 && stepAvg(i) <= 40);
   const spans = [];
   let cur = null;
   for (let i = 0; i < N; i++) {
@@ -248,24 +250,28 @@ export function detect({ dayStart, hr, steps, sleeps = [], exercises = [], rest 
   }
   const out = [];
   for (const sp of spans) {
-    if (sp.b - sp.a + 1 < 15) continue;
+    const mins = sp.b - sp.a + 1;
+    const vals = H.slice(sp.a, sp.b + 1).filter((x) => x != null);
+    const note = (why) => diag?.push({ start: t0 + sp.a * 60e3, end: t0 + (sp.b + 1) * 60e3, mins, avg: Math.round(mean(vals)), max: Math.max(...vals), base, peaks: peaks.length, steps: Math.round(sum(S.slice(sp.a, sp.b + 1)) / mins), why });
     const peaks = [];
+    if (mins < 12) { if (mins >= 6) note('不到 12 分钟'); continue; }
     for (let i = sp.a; i <= sp.b; i++) {
       const v = HX[i];
-      if (v == null || v < base + 40) continue;
+      if (v == null || v < base + 25) continue;
       const win = HX.slice(Math.max(sp.a, i - 2), Math.min(sp.b, i + 2) + 1).filter((x) => x != null);
       if (v < Math.max(...win)) continue;
       const around = H.slice(Math.max(0, i - 3), i + 4).filter((x) => x != null);
-      if (v - Math.min(...around) < 10) continue;
+      if (v - Math.min(...around) < 6) continue;
       if (peaks.length && i - peaks.at(-1).i < 2) continue;
       peaks.push({ i, t: t0 + i * 60e3, v });
     }
-    const mins = sp.b - sp.a + 1;
-    if (peaks.length < 3 || sum(S.slice(sp.a, sp.b + 1)) / mins > 30) continue;
-    const vals = H.slice(sp.a, sp.b + 1).filter((x) => x != null);
+    if (peaks.length < 3) { note(`只有 ${peaks.length} 个心率高峰，要 3 个`); continue; }
+    if (sum(S.slice(sp.a, sp.b + 1)) / mins > 40) { note('步数太多，像走路'); continue; }
     // sets come every few minutes; random bursts during the day don't
     const gap = median(peaks.slice(1).map((p, k) => p.i - peaks[k].i));
-    if (gap < 2 || gap > 8 || mean(vals) < base + 30) continue;
+    if (gap < 2 || gap > 10) { note(`高峰间隔 ${gap} 分钟，不像一组一组`); continue; }
+    if (mean(vals) < base + 18) { note(`平均心率 ${Math.round(mean(vals))}，比静息高得不够`); continue; }
+    note('');
     out.push({ start: t0 + sp.a * 60e3, end: t0 + (sp.b + 1) * 60e3, peaks: peaks.map(({ t, v }) => ({ t, v })), avgHr: Math.round(mean(vals)), maxHr: Math.max(...vals), source: 'detected' });
   }
   // strength workouts Fitbit (or the watch) already recorded
@@ -293,7 +299,7 @@ export async function addCandidates(date, cands) {
   const st = get();
   let changed = false;
   for (const c of cands) {
-    if (c.end > Date.now() - 10 * 60e3) continue; // still going
+    if (c.end > Date.now() - 2 * 60e3) continue; // probably still going; a later scan updates it
     const key = `${date}:${Math.round(c.start / 600e3)}`;
     if ((st.dismissed || []).includes(key)) continue;
     if (st.sessions.some((s) => s.start && s.start < c.end && c.start < s.end)) continue;
